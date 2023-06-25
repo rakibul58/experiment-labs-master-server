@@ -53,6 +53,14 @@ async function run() {
             res.send(result)
         })
 
+
+        app.get('/createOrganization', async (req, res) => {
+            const query = {}
+            const allorg = await orgCollection.find(query).toArray();
+
+            res.send(allorg);
+        });
+
         //create user
         app.post('/createUser', async (req, res) => {
             const user = req.body;
@@ -67,10 +75,13 @@ async function run() {
         })
 
         //login
-        app.get('/login', async (req, res) => {
+        app.post('/login', async (req, res) => {
             const user = req.body;
+            console.log(user);
+           // return res.json({ "login successful": "admin" })
 
-            let email = await orgCollection.findOne({ email: user.email, password: user.password });
+                return res.send({role:"admin"});
+           /*  let email = await orgCollection.findOne({ email: user.email, password: user.password });
 
             if (email) {
                 return res.json({ "login successful": "admin" })
@@ -83,10 +94,19 @@ async function run() {
 
             else {
                 return res.status(400).json({ error: " user not found" })
-            }
+            } */
             // const result = await usersCollection.insertOne(user);
             // res.send(result)
         })
+        /*   app.get('/login', async (req, res) => {
+
+            const user = req.body;
+            
+            console.log(user);
+           // const query = { email: email }
+          //  const result = await mobileCollection.find(query).toArray();
+            res.send("abx")
+        }) */
 
         // add to organization a user
         app.post('/addToOrganization', async (req, res) => {
@@ -114,57 +134,76 @@ async function run() {
             }
             const userEmai = user.user_email;
             const type = user.user_type;
-            const filter = {
-                org_id: id,
-                user_email: userEmai,
-                user_type: type
+            if (type != "admin") {
+                const filter = {
+                    org_id: id,
+                    user_email: userEmai,
+                    user_type: type
+                }
+                const result = await userdetailsCollection.insertOne(filter);
+                res.send(result)
             }
-            const result = await userdetailsCollection.insertOne(filter);
-            res.send(result)
+
+            if (type == "admin") {
+                const collections = await orgCollection.findOne({ email: req.query.email });
+                console.log(collections)
+                const filter = {
+                    org_id: collections.org_id,
+                    org_name: collections.org_name,
+                    email: userEmai,
+                    org_logo: collections.org_logo
+                }
+                const result = await orgCollection.insertOne(filter);
+                res.send(result)
+            }
+
+
+
+
+
+
+
+
         })
 
         //add to organization by new user
-        app.post('/addToOrganizationBynewadmin', async (req, res) => {
-            let query = {};
-            const email = req.query.email;
-
-            const user = req.body;
-
-            let adminEmail = await userdetailsCollection.findOne({ user_email: email });
-
-
-            /* if (!adminEmail) {
-                return res.status(400).json({ error: " admin not found" })
-            } */
-            let newAdmin = await userdetailsCollection.findOne({ user_type: "admin", user_email: email });
-            if (!newAdmin) {
-                return res.status(400).json({ error: " admin not found" })
-            }
-            const id = user.org_id;
-
-            let org_id = await orgCollection.findOne({ org_id: id });
-            if (!org_id) {
-                return res.status(400).json({ error: " Organization id not found" })
-            }
-
-            let actEmail = await userCollection.findOne({ email: user.user_email });
-            if (!actEmail) {
-                return res.status(400).json({ error: "sorry user not found" })
-            }
-            let checkUser = await userdetailsCollection.findOne({ user_email: user.user_email });
-            if (checkUser) {
-                return res.status(400).json({ error: "sorry a user already exixts" })
-            }
-            const userEmai = user.user_email;
-            const type = user.user_type;
-            const filter = {
-                org_id: id,
-                user_email: userEmai,
-                user_type: type
-            }
-            const result = await userdetailsCollection.insertOne(filter);
-            res.send(result)
-        })
+        /*  app.post('/addToOrganizationBynewadmin', async (req, res) => {
+             let query = {};
+             const email = req.query.email;
+ 
+             const user = req.body;
+ 
+             let adminEmail = await userdetailsCollection.findOne({ user_email: email });
+             
+             let newAdmin = await userdetailsCollection.findOne({ user_type: "admin", user_email: email });
+             if (!newAdmin) {
+                 return res.status(400).json({ error: " admin not found" })
+             }
+             const id = user.org_id;
+ 
+             let org_id = await orgCollection.findOne({ org_id: id });
+             if (!org_id) {
+                 return res.status(400).json({ error: " Organization id not found" })
+             }
+ 
+             let actEmail = await userCollection.findOne({ email: user.user_email });
+             if (!actEmail) {
+                 return res.status(400).json({ error: "sorry user not found" })
+             }
+             let checkUser = await userdetailsCollection.findOne({ user_email: user.user_email });
+             if (checkUser) {
+                 return res.status(400).json({ error: "sorry a user already exixts" })
+             }
+             const userEmai = user.user_email;
+             const type = user.user_type;
+             const filter = {
+                 org_id: id,
+                 user_email: userEmai,
+                 user_type: type
+             }
+             const result = await userdetailsCollection.insertOne(filter);
+             res.send(result)
+         }) */
 
         //add redeem_categories
         app.post('/redeem_categories', async (req, res) => {
