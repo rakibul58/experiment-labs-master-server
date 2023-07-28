@@ -69,6 +69,14 @@ async function run() {
             res.send(allorg);
         });
 
+
+        app.get('/createOrganization', async (req, res) => {
+            const query = {}
+            const allorg = await orgCollection.find(query).toArray();
+
+            res.send(allorg);
+        });
+
         //create user
         app.post('/createUser', async (req, res) => {
             const user = req.body;
@@ -121,10 +129,14 @@ async function run() {
             }
             const userEmai = user.user_email;
             const type = user.user_type;
-            const filter = {
-                org_id: id,
-                user_email: userEmai,
-                user_type: type
+            if (type != "admin") {
+                const filter = {
+                    org_id: id,
+                    user_email: userEmai,
+                    user_type: type
+                }
+                const result = await userdetailsCollection.insertOne(filter);
+                res.send(result)
             }
             const result = await userdetailsCollection.insertOne(filter);
             res.send(result)
@@ -192,6 +204,7 @@ async function run() {
         //     const redeem_categories = await redeem_categoriesCollection.find(query).toArray();
         //     res.send(redeem_categories);
         // });
+
 
 
         app.get('/addToOrganization', async (req, res) => {
