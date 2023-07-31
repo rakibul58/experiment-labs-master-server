@@ -1,8 +1,9 @@
 const express = require('express')
-const { MongoClient, ServerApiVersion } = require('mongodb');
-const app = express()
 const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const app = express()
 require('dotenv').config();
+const { query } = require('express');
 
 app.use(express.static('front'))
 
@@ -42,6 +43,8 @@ async function run() {
         const item_redemption_parameter_internalCollection = client.db('experiment-labs').collection('item_redemption_parameter_internal');
 
         const courseCollection = client.db('experiment-labs').collection('courses');
+
+        const chapterCollection = client.db('experiment-labs').collection('chapters');
 
 
         //create organization
@@ -309,11 +312,72 @@ async function run() {
             res.send(courses);
         });
 
+        //get courses by id
+        app.get('/courses/:id', async (req, res) => {
+            const id = req.params.id;
+            console.log(id);
+            const filter = { _id: new ObjectId(id) };
+            const course = await courseCollection.findOne(filter);
+            console.log(course);
+            res.send(course);
+        });
+
         //add courses
         app.post('/courses', async (req, res) => {
             const course = req.body;
             const result = await courseCollection.insertOne(course);
+            const id = result.insertedId;
+            const chapter = {
+                "courseId": id,
+                "chapterName": "Topic 1",
+                "creator": course?.creator,
+                "date": new Date()
+            };
+            const newChapter = await chapterCollection.insertOne(chapter);
+            res.send({
+                "course --->": result,
+                "chapter --->": newChapter
+            })
+        });
+
+
+        //get chapters
+        app.get('/chapters', async (req, res) => {
+            const query = {};
+            const chapters = await chapterCollection.find(query).toArray();
+            res.send(chapters);
+        });
+
+
+        //get chapter
+        app.get('/chapters/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { courseId: id };
+            const chapters = await chapterCollection.find(query).toArray();
+            res.send(chapters);
+        });
+
+        //add chapter
+        app.post('/chapters', async (req, res) => {
+            const chapter = req.body;
+            const result = await chapterCollection.insertOne(chapter);
             res.send(result)
+        });
+
+        //Rename chapters
+        app.put('/chapters/:id', async (req, res) => {
+            const id = req.params.id;
+            const chapterName = req.body.chapterName;
+            const filter = { _id: new ObjectId(id) };
+
+            const options = { upsert: true };
+            const updatedDoc = {
+                $set: {
+                    chapterName: chapterName
+                }
+            };
+            const result = await chapterCollection.updateOne(filter, updatedDoc, options);
+            res.send(result);
         });
 
 
