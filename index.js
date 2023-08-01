@@ -96,7 +96,7 @@ async function run() {
         //login
         app.post('/login', async (req, res) => {
             const user = req.body;
-            console.log(user);
+            // console.log(user);
 
             let email = await orgCollection.findOne({ email: user.email });
 
@@ -315,10 +315,10 @@ async function run() {
         //get courses by id
         app.get('/courses/:id', async (req, res) => {
             const id = req.params.id;
-            console.log(id);
+            // console.log(id);
             const filter = { _id: new ObjectId(id) };
             const course = await courseCollection.findOne(filter);
-            console.log(course);
+            // console.log(course);
             res.send(course);
         });
 
@@ -328,16 +328,16 @@ async function run() {
             const result = await courseCollection.insertOne(course);
             const id = result.insertedId;
             const chapter = {
-                "courseId": id,
-                "chapterName": "Topic 1",
-                "creator": course?.creator,
-                "date": new Date()
+                courseId: ""+id,
+                chapterName: "Topic 1",
+                creator: course?.creator,
+                date: new Date()
             };
             const newChapter = await chapterCollection.insertOne(chapter);
             res.send({
                 "course --->": result,
                 "chapter --->": newChapter
-            })
+            });
         });
 
 
@@ -352,6 +352,7 @@ async function run() {
         //get chapter
         app.get('/chapters/:id', async (req, res) => {
             const id = req.params.id;
+            console.log(id);
             const query = { courseId: id };
             const chapters = await chapterCollection.find(query).toArray();
             res.send(chapters);
