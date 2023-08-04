@@ -53,7 +53,7 @@ async function run() {
 
         const assignmentCollection = client.db('experiment-labs').collection('assignments');
 
-        const categoryCollection = client.db('experiment-labs').collection('categories');
+        const skillCategoryCollection = client.db('experiment-labs').collection('skillCategories');
 
 
 
@@ -72,7 +72,7 @@ async function run() {
         //find user
         app.get('/users', async (req, res) => {
             const email = req.query.email;
-            const query = {email: email};
+            const query = { email: email };
             const user = await userCollection.findOne(query);
             res.send(user);
         });
@@ -99,21 +99,22 @@ async function run() {
             const result = await orgCollection.insertOne(user);
             const organizationId = result.insertedId;
             const email = user.email;
-            
+
             const filter = { email: email };
 
             const options = { upsert: true };
 
             const updatedDoc = {
                 $set: {
-                    organizationId: ""+organizationId,
-                    organizationName: ""+user?.organizationName
+                    organizationId: "" + organizationId,
+                    organizationName: "" + user?.organizationName,
+                    role: "Admin"
                 }
             };
 
             const newResult = await userCollection.updateOne(filter, updatedDoc, options);
 
-            res.send({result , newResult});
+            res.send({ result, newResult });
         });
 
         // app.get('/createOrganization', async (req, res) => {
@@ -256,7 +257,7 @@ async function run() {
         // });
 
 
-        
+
 
 
         // //create Gamification_Settings
@@ -357,7 +358,9 @@ async function run() {
             const week = {
                 courseId: "" + courseId,
                 weekNo: 1,
-                weekName: "Week Name"
+                weekName: "Week Name",
+                organization: course?.organization,
+                creator: course?.creator
             };
             const newResult = await weekCollection.insertOne(week);
             const weekId = newResult.insertedId;
@@ -424,9 +427,12 @@ async function run() {
             const data = req.body;
             const courseId = data.courseId;
             const creator = data.creator;
+            const organization = data.organization;
             const week = {
                 courseId: "" + courseId,
-                weekName: data.weekName
+                weekName: data.weekName,
+                creator: creator,
+                organization: organization
             };
             const newResult = await weekCollection.insertOne(week);
             const weekId = newResult.insertedId;
@@ -505,7 +511,7 @@ async function run() {
 
             res.send({ result, newResult });
         });
-        
+
 
         //get Assignment by id
         app.get('/assignments/:id', async (req, res) => {
@@ -517,18 +523,70 @@ async function run() {
 
 
         //Create category
-        app.post('/categories/:id', async (req, res) => {
+        app.post('/skill_categories/:id', async (req, res) => {
             const category = req.body;
             const organizationId = req.params.id;
-            const filter = { _id: new ObjectId(organizationId) };
+            const filter = { organizationId: organizationId };
+            const result = await skillCategoryCollection.findOne(filter);
+
+            if (!result) {
+                const newData = await skillCategoryCollection.insertOne(
+                    {
+                        organizationId: organizationId,
+                        categories: [
+                            category
+                        ]
+                    }
+                )
+
+                res.send(newData);
+            }
+
+            else {
+                const options = { upsert: true };
+
+                const updatedDoc = {
+                    $push: {
+                        categories: category
+                    }
+                };
+
+                const newResult = await skillCategoryCollection.updateOne(filter, updatedDoc, options);
+
+                res.send(newResult);
+            }
+        });
+
+
+        //Create category
+        app.get('/skill_categories/:id', async (req, res) => {
+            const organizationId = req.params.id;
+            const filter = { organizationId: organizationId };
+            const result = await skillCategoryCollection.findOne(filter);
+            res.send(result);
+        });
+
+
+
+        //Create category
+        app.post('/skills', async (req, res) => {
+            const skillData = req.body;
+
             const options = { upsert: true };
-            const updatedDoc = {
-                $push: {
-                    categories: category
-                }
+
+            const filter = {
+                organizationId: skillData.organizationId,
+                categories: {
+                    $elemMatch: { categoryName: skillData.categoryName },
+                },
             };
 
-            const result = await orgCollection.updateOne(filter, updatedDoc, options);
+            const update = {
+                $push: { "categories.$.skill": skillData.skill },
+            };
+
+            const result = await skillCategoryCollection.updateOne(filter, update, options);
+
             res.send(result);
         });
 
