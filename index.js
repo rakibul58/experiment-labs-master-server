@@ -381,6 +381,15 @@ async function run() {
         });
 
 
+        //get courses by organization id 
+        app.get('/courses/organizations/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { "organization.organizationId": id };
+            const course = await courseCollection.find(filter).toArray();
+            res.send(course);
+        });
+
+
         //get chapters
         app.get('/chapters', async (req, res) => {
             const query = {};
@@ -523,42 +532,86 @@ async function run() {
 
 
         //Create category
-        app.post('/skill_categories/:id', async (req, res) => {
-            const category = req.body;
-            const organizationId = req.params.id;
-            const filter = { organizationId: organizationId };
-            const result = await skillCategoryCollection.findOne(filter);
+        app.post('/skill_categories', async (req, res) => {
+            // Check if the organizationId exists in the database
+            const { organizationId, categoryName, courseId } = req.body;
+            const existingData = await skillCategoryCollection.findOne({ organizationId });
 
-            if (!result) {
-                const newData = await skillCategoryCollection.insertOne(
-                    {
-                        organizationId: organizationId,
-                        categories: [
-                            category
-                        ]
+            if (existingData) {
+                // If the organizationId exists, find the corresponding course
+                const existingCourse = existingData.courses.find(
+                    (course) => course.courseId === courseId
+                );
+
+                if (existingCourse) {
+                    // If the courseId exists, check if the categoryName exists in categories
+                    const existingCategory = existingCourse.categories.find(
+                        (category) => category.categoryName.toLowerCase() === categoryName.toLowerCase()
+                    );
+
+                    if (!existingCategory) {
+                        // If the categoryName doesn't exist, add it to the categories array
+                        const result1 = await skillCategoryCollection.updateOne(
+                            {
+                                organizationId,
+                                "courses.courseId": courseId,
+                            },
+                            {
+                                $push: {
+                                    "courses.$.categories": {
+                                        categoryName,
+                                    },
+                                },
+                            }
+                        );
+
+                        res.send(result1);
                     }
-                )
+                }
+                else {
+                    // If the courseId doesn't exist, create a new course object and add it to the courses array
+                    const result2 = await skillCategoryCollection.updateOne(
+                        {
+                            organizationId,
+                        },
+                        {
+                            $push: {
+                                courses: {
+                                    courseId,
+                                    categories: [
+                                        {
+                                            categoryName,
+                                        },
+                                    ],
+                                },
+                            },
+                        }
+                    );
 
-                res.send(newData);
-            }
+                    res.send(result2)
+                }
+            } else {
+                // If the organizationId doesn't exist, create a new document
+                const result3 = await skillCategoryCollection.insertOne({
+                    organizationId,
+                    courses: [
+                        {
+                            courseId,
+                            categories: [
+                                {
+                                    categoryName,
+                                },
+                            ],
+                        },
+                    ],
+                });
 
-            else {
-                const options = { upsert: true };
-
-                const updatedDoc = {
-                    $push: {
-                        categories: category
-                    }
-                };
-
-                const newResult = await skillCategoryCollection.updateOne(filter, updatedDoc, options);
-
-                res.send(newResult);
+                res.send(result3)
             }
         });
 
 
-        //Create category
+        //get a skill category
         app.get('/skill_categories/:id', async (req, res) => {
             const organizationId = req.params.id;
             const filter = { organizationId: organizationId };
@@ -566,30 +619,191 @@ async function run() {
             res.send(result);
         });
 
+        //get all skill category
+        app.get('/skill_categories', async (req, res) => {
+            const filter = {};
+            const result = await skillCategoryCollection.find(filter).toArray();
+            res.send(result);
+        });
+
+
+        //delete a skill category
+        app.delete('/skill_categories/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const result = await skillCategoryCollection.deleteOne(filter);
+            res.send(result);
+        });
+
 
 
         //Create category
         app.post('/skills', async (req, res) => {
-            const skillData = req.body;
+            const { organizationId, categoryName, courseId } = req.body;
+            const skillData = req.body.skill;
 
-            const options = { upsert: true };
+            // Find the organization
+            const organization = await skillCategoryCollection.findOne({ organizationId });
+            if (!organization) {
+                res.status(404).json({ error: "Organization not found" });
+                return;
+            }
 
-            const filter = {
-                organizationId: skillData.organizationId,
-                categories: {
-                    $elemMatch: { categoryName: skillData.categoryName },
-                },
-            };
+            // Find the course and category
+            const course = organization.courses.find((c) => c.courseId === courseId);
+            if (!course) {
+                res.status(404).json({ error: "Course not found" });
+                return;
+            }
 
-            const update = {
-                $push: { "categories.$.skill": skillData.skill },
-            };
+            const category = course.categories.find(
+                (cat) => cat.categoryName.toLowerCase() === categoryName.toLowerCase()
+            );
 
-            const result = await skillCategoryCollection.updateOne(filter, update, options);
+            if (category) {
+                if (!category.skills) {
+                    // If skills array doesn't exist, create it
+                    category.skills = [];
+                }
 
-            res.send(result);
+                // Find the skill if it exists
+                const existingSkillIndex = category.skills.findIndex(
+                    (skill) => skill.skillName === skillData.skillName
+                );
+
+                if (existingSkillIndex !== -1) {
+                    // If skill exists, update parameters
+                    const existingSkill = category.skills[existingSkillIndex];
+
+                    skillData.parameters.forEach((param) => {
+                        if (!existingSkill.parameters.includes(param)) {
+                            existingSkill.parameters.push(param);
+                        }
+                    });
+                } else {
+                    // If skill doesn't exist, create it with parameters
+                    category.skills.push({
+                        skillName: skillData.skillName,
+                        parameters: skillData.parameters,
+                    });
+                }
+            } else {
+                // If category doesn't exist, create it with skill
+                course.categories.push({
+                    categoryName,
+                    skills: [
+                        {
+                            skillName: skillData.skillName,
+                            parameters: skillData.parameters,
+                        },
+                    ],
+                });
+            }
+
+            // Update the organization in the database
+            const result = await skillCategoryCollection.updateOne(
+                { organizationId },
+                { $set: { courses: organization.courses } }
+            );
+
+            res.send(result)
+
         });
 
+
+        //update a categoryName
+        app.put("/skill_categories/updateCategoryName", async (req, res) => {
+            const { organizationId, courseId, oldCategoryName, newCategoryName } = req.body;
+
+            // Find the organization
+            const organization = await skillCategoryCollection.findOne({ organizationId });
+            if (!organization) {
+                res.status(404).json({ error: "Organization not found" });
+                return;
+            }
+
+            // Find the course
+            const course = organization.courses.find((c) => c.courseId === courseId);
+            if (!course) {
+                res.status(404).json({ error: "Course not found" });
+                return;
+            }
+
+            const categoryExists = course.categories.some(
+                (cat) => cat.categoryName.toLowerCase() === newCategoryName.toLowerCase()
+            );
+
+            if (categoryExists) {
+                res.status(400).json({ error: "Category already exists. Please choose another name." });
+                return;
+            }
+
+            // Find the category
+            const category = course.categories.find(
+                (cat) => cat.categoryName.toLowerCase() === oldCategoryName.toLowerCase()
+            );
+
+            if (!category) {
+                res.status(404).json({ error: "Category not found" });
+                return;
+            }
+
+            // Update the category name
+            category.categoryName = newCategoryName;
+
+            // Update the organization in the database
+            await skillCategoryCollection.updateOne(
+                { organizationId },
+                { $set: { courses: organization.courses } }
+            );
+
+            res.status(200).json({ message: "Category name updated successfully!" });
+
+        });
+
+
+        //Delete a category
+        app.delete("/deleteCategory", async (req, res) => {
+            const { organizationId, courseId, categoryName } = req.body;
+
+            // Find the organization
+            const organization = await skillCategoryCollection.findOne({ organizationId });
+            if (!organization) {
+                res.status(404).json({ error: "Organization not found" });
+                return;
+            }
+
+            // Find the course
+            const course = organization.courses.find((c) => c.courseId === courseId);
+            if (!course) {
+                res.status(404).json({ error: "Course not found" });
+                return;
+            }
+
+            // Find the category index
+            const categoryIndex = course.categories.findIndex(
+                (cat) => cat.categoryName.toLowerCase() === categoryName.toLowerCase()
+            );
+
+            console.log(categoryIndex);
+
+            if (categoryIndex === -1) {
+                res.status(404).json({ error: "Category not found" });
+                return;
+            }
+
+            // Remove the category
+            course.categories.splice(categoryIndex, 1);
+
+            // Update the organization in the database
+            const result = await skillCategoryCollection.updateOne(
+                { organizationId },
+                { $set: { courses: organization.courses } }
+            );
+
+            res.send(result);
+
+        });
 
 
 
@@ -598,7 +812,7 @@ async function run() {
         // app.get('/assignments/:id', async (req, res) => {
         //     const courseId = req.params.id;
         //     const query = { courseId: courseId };
-        //     const courses = await weekCollection.find(query).toArray();
+        //     const courses = await weekskillCategoryCollection.find(query).toArray();
         //     res.send(courses);
         // });
 
