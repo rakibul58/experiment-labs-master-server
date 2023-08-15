@@ -52,6 +52,13 @@ async function run() {
         const testCollection = client.db('experiment-labs').collection('test');
 
         const assignmentCollection = client.db('experiment-labs').collection('assignments');
+        const classCollection = client.db('experiment-labs').collection('classes');
+        const readingCollection = client.db('experiment-labs').collection('readings');
+        const quizCollection = client.db('experiment-labs').collection('quizes');
+        const liveTestCollection = client.db('experiment-labs').collection('liveTests');
+        const videoCollection = client.db('experiment-labs').collection('videos');
+        const audioCollection = client.db('experiment-labs').collection('audios');
+        const fileCollection = client.db('experiment-labs').collection('files');
 
         const skillCategoryCollection = client.db('experiment-labs').collection('skillCategories');
 
@@ -528,17 +535,50 @@ async function run() {
 
 
         //Assignment
-        app.post('/assignments/:id', async (req, res) => {
-            const chapterId = req.params.id;
-            const assignment = req.body;
-            const result = await assignmentCollection.insertOne(assignment);
+        app.post('/tasks/:id', async (req, res) => {
+            const chapterId = req.body.chapterId;
+            const taskType = req.params.id;
+            const task = req.body;
+
+            let result;
+
+            switch (taskType) {
+                case 'assignments':
+                    result = await assignmentCollection.insertOne(task);
+                    break;
+                case 'classes':
+                    result = await classCollection.insertOne(task);
+                    break;
+                case 'readings':
+                    result = await readingCollection.insertOne(task);
+                    break;
+                case 'quizes':
+                    result = await quizCollection.insertOne(task);
+                    break;
+                case 'liveTests':
+                    result = await liveTestCollection.insertOne(task);
+                    break;
+                case 'videos':
+                    result = await videoCollection.insertOne(task);
+                    break;
+                case 'audios':
+                    result = await audioCollection.insertOne(task);
+                    break;
+                case 'files':
+                    result = await fileCollection.insertOne(task);
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid task type' });
+            }
+
+            res.status(200).json(result);
 
             const filter = { _id: new ObjectId(chapterId) };
             const options = { upsert: true };
 
             const newTask = {
                 taskId: "" + result?.insertedId,
-                taskType: "Assignment"
+                taskType: taskType
             };
 
             const updatedDoc = {
@@ -845,7 +885,7 @@ async function run() {
         });
 
 
-        app.get("/skillCategoriesByCourseId", async (req, res) => {
+        app.post("/skillCategoriesByCourseId", async (req, res) => {
             const { organizationId, courseId } = req.body;
 
             // console.log(req.body);
@@ -1298,6 +1338,36 @@ async function run() {
             );
 
             res.send(result)
+        });
+
+
+        app.post("/itemCategoryByCourseId", async (req, res) => {
+            const { organizationId, courseId } = req.body;
+
+            // console.log(req.body);
+            // Find the document with matching organizationId and courseId
+            const filter = {
+                organizationId: organizationId,
+                "courses.courseId": courseId,
+            };
+
+            const document = await earningCategoryCollection.findOne(filter);
+
+            console.log(filter);
+            console.log(document);
+
+            if (!document) {
+                res.status(404).json({ error: "Document not found" });
+                return;
+            }
+
+            // Extract and return the categories for the specified courseId
+            const categories = document.courses.find(
+                (course) => course.courseId === courseId
+            ).categories;
+
+            res.status(200).json(categories);
+
         });
 
 
