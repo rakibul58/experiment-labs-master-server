@@ -540,34 +540,40 @@ async function run() {
             const taskType = req.params.id;
             const task = req.body;
             const taskName = task.taskName;
-            const taskShowType = task.taskShowType;
-            // console.log(taskType.charAt(0).toUpperCase() + taskType.slice(1));
-            const taskTypeInput = taskType.charAt(0).toUpperCase() + taskType.slice(1);
+            let taskTypeInput;
             let result;
 
             switch (taskType) {
                 case 'assignments':
+                    taskTypeInput = "Assignment";
                     result = await assignmentCollection.insertOne(task);
                     break;
                 case 'classes':
+                    taskTypeInput = "Class";
                     result = await classCollection.insertOne(task);
                     break;
                 case 'readings':
+                    taskTypeInput = "Reading";
                     result = await readingCollection.insertOne(task);
                     break;
                 case 'quizes':
+                    taskTypeInput = "Quiz";
                     result = await quizCollection.insertOne(task);
                     break;
                 case 'liveTests':
+                    taskTypeInput = "Live Test";
                     result = await liveTestCollection.insertOne(task);
                     break;
                 case 'videos':
+                    taskTypeInput = "Video";
                     result = await videoCollection.insertOne(task);
                     break;
                 case 'audios':
+                    taskTypeInput = "Audio";
                     result = await audioCollection.insertOne(task);
                     break;
                 case 'files':
+                    taskTypeInput = "Files";
                     result = await fileCollection.insertOne(task);
                     break;
                 default:
@@ -582,7 +588,6 @@ async function run() {
             const newTask = {
                 taskId: "" + result?.insertedId,
                 taskType: taskTypeInput,
-                taskShowType,
                 taskName
             };
 
