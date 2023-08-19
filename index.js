@@ -534,12 +534,15 @@ async function run() {
         });
 
 
-        //Assignment
+        //tasks
         app.post('/tasks/:id', async (req, res) => {
             const chapterId = req.body.chapterId;
             const taskType = req.params.id;
             const task = req.body;
-
+            const taskName = task.taskName;
+            const taskShowType = task.taskShowType;
+            // console.log(taskType.charAt(0).toUpperCase() + taskType.slice(1));
+            const taskTypeInput = taskType.charAt(0).toUpperCase() + taskType.slice(1);
             let result;
 
             switch (taskType) {
@@ -578,7 +581,9 @@ async function run() {
 
             const newTask = {
                 taskId: "" + result?.insertedId,
-                taskType: taskType
+                taskType: taskTypeInput,
+                taskShowType,
+                taskName
             };
 
             const updatedDoc = {
@@ -593,12 +598,43 @@ async function run() {
         });
 
 
-        //get Assignment by id
-        app.get('/assignments/:id', async (req, res) => {
-            const assignmentId = req.params.id;
-            const query = { _id: new ObjectId(assignmentId) };
-            const assignment = await assignmentCollection.findOne(query);
-            res.send(assignment);
+        //get tasks by id
+        app.get('/tasks/:taskType', async (req, res) => {
+            const taskType = req.params.taskType;
+            const id = req.query.id;
+            const filter = { _id: new ObjectId(id) };
+            let result;
+
+            switch (taskType) {
+                case 'assignments':
+                    result = await assignmentCollection.findOne(filter);
+                    break;
+                case 'classes':
+                    result = await classCollection.findOne(filter);
+                    break;
+                case 'readings':
+                    result = await readingCollection.findOne(filter);
+                    break;
+                case 'quizes':
+                    result = await quizCollection.findOne(filter);
+                    break;
+                case 'liveTests':
+                    result = await liveTestCollection.findOne(filter);
+                    break;
+                case 'videos':
+                    result = await videoCollection.findOne(filter);
+                    break;
+                case 'audios':
+                    result = await audioCollection.findOne(filter);
+                    break;
+                case 'files':
+                    result = await fileCollection.findOne(filter);
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid task type' });
+            }
+
+            res.status(200).json(result);
         });
 
 
