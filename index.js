@@ -1,5 +1,6 @@
 const express = require('express')
 const cors = require('cors');
+const axios = require('axios');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express()
 require('dotenv').config();
@@ -65,7 +66,7 @@ async function run() {
         const earningCategoryCollection = client.db('experiment-labs').collection('earningCategories');
 
 
-
+        const assignmentSubmitCollection = client.db('experiment-labs').collection('assignments-submit');
 
 
 
@@ -479,7 +480,9 @@ async function run() {
                 courseId: "" + courseId,
                 weekName: data.weekName,
                 creator: creator,
-                organization: organization
+                organization: organization,
+                weekStartDate: data.weekStartDate,
+                weekEndDate: data.weekEndDate
             };
             const newResult = await weekCollection.insertOne(week);
             const weekId = newResult.insertedId;
@@ -508,16 +511,28 @@ async function run() {
             res.send(courses);
         });
 
+        app.get('/week/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const week = await weekCollection.findOne(query);
+            res.send(week);
+        });
+
         //Rename weeks
         app.put('/weeks/:id', async (req, res) => {
             const id = req.params.id;
             const weekName = req.body.weekName;
+            const weekStartDate = req.body.weekStartDate;
+            const weekEndDate = req.body.weekEndDate;
+
             const filter = { _id: new ObjectId(id) };
 
             const options = { upsert: true };
             const updatedDoc = {
                 $set: {
-                    weekName: weekName
+                    weekName: weekName,
+                    weekStartDate: weekStartDate,
+                    weekEndDate: weekEndDate
                 }
             };
             const result = await weekCollection.updateOne(filter, updatedDoc, options);
@@ -549,7 +564,7 @@ async function run() {
                     result = await assignmentCollection.insertOne(task);
                     break;
                 case 'classes':
-                    taskTypeInput = "Class";
+                    taskTypeInput = "Classes";
                     result = await classCollection.insertOne(task);
                     break;
                 case 'readings':
@@ -641,6 +656,293 @@ async function run() {
 
             res.status(200).json(result);
         });
+
+
+        app.delete('/tasks/:taskType/:id', async (req, res) => {
+            const taskType = req.params.taskType;
+            const taskId = req.params.id;
+
+            let deleteResult, result;
+
+            switch (taskType) {
+                case 'assignments':
+                    deleteResult = await assignmentCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'classes':
+                    deleteResult = await classCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'readings':
+                    deleteResult = await readingCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'quizes':
+                    deleteResult = await quizCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'liveTests':
+                    deleteResult = await liveTestCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'videos':
+                    deleteResult = await videoCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'audios':
+                    deleteResult = await audioCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                case 'files':
+                    deleteResult = await fileCollection.deleteOne({ _id: new ObjectId(taskId) });
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid task type' });
+            }
+
+            // Remove task from chapter's tasks array
+            if (deleteResult.deletedCount > 0) {
+                const chapterFilter = { 'tasks.taskId': taskId };
+                const chapterUpdate = {
+                    $pull: { tasks: { taskId } }
+                };
+                result = await chapterCollection.updateOne(chapterFilter, chapterUpdate);
+            }
+
+            res.status(200).json({ deleteResult, result });
+        });
+
+
+        app.put('/tasks/:taskType/:id', async (req, res) => {
+            const taskType = req.params.taskType;
+            const taskId = req.params.id;
+            const updatedTask = req.body;
+
+            let updateResult, result;
+
+            switch (taskType) {
+                case 'assignments':
+                    updateResult = await assignmentCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'classes':
+                    updateResult = await classCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'readings':
+                    updateResult = await readingCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'quizes':
+                    updateResult = await quizCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'liveTests':
+                    updateResult = await liveTestCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'videos':
+                    updateResult = await videoCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'audios':
+                    updateResult = await audioCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                case 'files':
+                    updateResult = await fileCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: updatedTask }
+                    );
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid task type' });
+            }
+
+            console.log(updateResult.modifiedCount);
+
+            // Update chapter's task info as well
+            if (updateResult.modifiedCount > 0) {
+                const chapterFilter = { 'tasks.taskId': taskId };
+                const find = await chapterCollection.findOne(chapterFilter);
+                console.log(find);
+                const chapterUpdate = {
+                    $set: { 'tasks.$.taskName': updatedTask.taskName }
+                };
+                result = await chapterCollection.updateOne(chapterFilter, chapterUpdate);
+            }
+
+            res.status(200).json({ updateResult, result });
+        });
+
+
+        app.get('/allTask/:id', async (req, res) => {
+
+            const id = req.query.id;
+            const filter = { chapterId: id };
+            let allData = {};
+
+
+            const result1 = await assignmentCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                assignment: {
+                    data: result1,
+                    length: result1.length
+                }
+            }
+            const result2 = await classCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                classes: {
+                    data: result2,
+                    length: result2.length
+                }
+            };
+
+            const result3 = await readingCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                reading: {
+                    data: result3,
+                    length: result3.length
+                }
+            };
+
+            const result4 = await quizCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                quiz: {
+                    data: result4,
+                    length: result4.length
+                }
+            };
+
+            const result5 = await liveTestCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                liveTest: {
+                    data: result5,
+                    length: result5.length
+                }
+            };
+
+            const result6 = await videoCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                video: {
+                    data: result6,
+                    length: result6.length
+                }
+            };
+
+            const result7 = await audioCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                audio: {
+                    data: result7,
+                    length: result7.length
+                }
+            };
+
+            const result8 = await fileCollection.find(filter).toArray();
+            allData = {
+                ...allData,
+                files: {
+                    data: result8,
+                    length: result8.length
+                }
+            };
+
+
+
+            res.status(200).json(allData);
+        })
+
+
+        // Add a new question to the questions array in the quiz collection
+        app.post('/quizzes/:quizId/questions', async (req, res) => {
+            const quizId = req.params.quizId;
+            const newQuestion = req.body;
+
+            let questionId;
+            let isUniqueId = false;
+
+            while (!isUniqueId) {
+                // Generate a unique question ID
+                questionId = new ObjectId().toString();
+
+                // Check if the generated questionId is unique in the questions array
+                const quiz = await quizCollection.findOne({ _id: new ObjectId(quizId) });
+                const questionIds = quiz.questions.map(question => question.questionId);
+
+                if (!questionIds.includes(questionId)) {
+                    isUniqueId = true;
+                }
+            }
+
+            // Add the generated question ID to the new question object
+            newQuestion.questionId = questionId;
+
+            const updateResult = await quizCollection.updateOne(
+                { _id: new ObjectId(quizId) },
+                { $push: { questions: newQuestion } }
+            );
+
+            if (updateResult.modifiedCount > 0) {
+                res.status(200).json({ success: true, questionId, updateResult });
+            } else {
+                res.status(400).json({ success: false, message: 'Failed to add question' });
+            }
+        });
+
+
+        // Update a question within the questions array in the quiz collection
+        app.put('/quizzes/:quizId/questions/:questionId', async (req, res) => {
+            const quizId = req.params.quizId;
+            const questionId = req.params.questionId;
+            const updatedQuestion = req.body;
+
+            const updateResult = await quizCollection.updateOne(
+                { _id: new ObjectId(quizId), 'questions.questionId': questionId },
+                { $set: { 'questions.$': updatedQuestion } }
+            );
+
+            if (updateResult.modifiedCount > 0) {
+                res.status(200).json({ success: true, updateResult });
+            } else {
+                res.status(400).json({ success: false, message: 'Failed to update question' });
+            }
+        });
+
+
+
+        // Get a specific question from the questions array in the quiz collection
+        app.get('/quizzes/:quizId/questions/:questionId', async (req, res) => {
+            const quizId = req.params.quizId;
+            const questionId = req.params.questionId;
+
+            const quiz = await quizCollection.findOne(
+                { _id: new ObjectId(quizId), 'questions.questionId': questionId },
+                { projection: { questions: { $elemMatch: { questionId: questionId } } } }
+            );
+
+            if (quiz && quiz.questions && quiz.questions.length > 0) {
+                const question = quiz.questions[0];
+                res.status(200).json(question);
+            } else {
+                res.status(404).json({ message: 'Question not found' });
+            }
+        });
+
+
 
 
         //Create Skill category
@@ -1152,8 +1454,14 @@ async function run() {
                 return;
             }
 
+            console.log(document);
+
+            const matchingCourse = document.courses.find(
+                (course) => course.courseId === courseId
+            );
+
             // Find the category with matching categoryName
-            const matchingCategory = document.courses[0].categories.find(
+            const matchingCategory = matchingCourse.categories.find(
                 (category) => category.categoryName === categoryName
             );
 
@@ -1412,6 +1720,77 @@ async function run() {
         });
 
 
+        app.post("/submitAssignment", async (req, res) => {
+            const data = req.body;
+            const result = await assignmentSubmitCollection.insertOne(data);
+            res.send(result);
+        });
+
+
+        // Find assignment submission by taskId and submitter _id
+        app.get('/submitAssignment/:taskId/:submitterId', async (req, res) => {
+            const taskId = req.params.taskId;
+            const submitterId = req.params.submitterId;
+
+            const query = {
+                taskId: taskId,
+                'submitter._id': submitterId
+            };
+
+            try {
+                const submissions = await assignmentSubmitCollection.find(query).toArray();
+
+                if (submissions.length === 0) {
+                    return res.status(404).json({ message: 'No assignment submissions found' });
+                }
+
+                res.status(200).json(submissions);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+        // app.post("/create-meeting", async (req, res) => {
+        //     const { clientId, clientSecret } = req.body;
+
+        //     // Call Zoom's token endpoint to generate an access token
+        //     const response = await axios.post('https://zoom.us/oauth/token', null, {
+        //         params: {
+        //             grant_type: 'client_credentials',
+        //             client_id: clientId,
+        //             client_secret: clientSecret,
+        //         },
+        //     });
+
+        //     const accessToken = response.data.access_token;
+
+        //     console.log(accessToken);
+        //     fetch('https://api.zoom.us/v2/users/me/meetings', {
+        //         mode: 'no-cors',
+        //         method: 'POST',
+        //         headers: {
+        //             'Content-Type': 'application/json',
+        //             'Authorization': `Bearer ${accessToken}`
+        //         },
+        //         body: JSON.stringify({
+        //             agenda: "My Meeting 2",
+        //             type: 2
+        //         })
+        //     })
+        //         .then(res => res.json())
+        //         .then(result => res.send({ result, accessToken }));
+        // });
+
+
+
+
+
+
+
+
+
 
 
         // //get week by courseId
@@ -1426,6 +1805,39 @@ async function run() {
         //user add
 
 
+        // app.post("/create-meeting", async (req, res) => {
+        //     // const { clientId, clientSecret } = req.body;
+
+        //     try {
+        //         const response = await axios.post('https://zoom.us/oauth/token', null, {
+        //             params: {
+        //                 grant_type: 'client_credentials',
+        //                 client_id: 'e_FuOBgNQwC1bQu3AJT5yg',
+        //                 client_secret: 'Wgk4MOvEykfhWjTVYdSOR1Jt3IP3wQ17',
+        //             },
+        //         });
+
+        //         const accessToken = response.data.access_token;
+
+        //         const meetingResponse = await axios.post('https://api.zoom.us/v2/users/me/meetings', {
+        //             agenda: "My Meeting 2",
+        //             type: 2
+        //         }, {
+        //             headers: {
+        //                 'Content-Type': 'application/json',
+        //                 'Authorization': `Bearer ${accessToken}`
+        //             },
+        //         });
+
+        //         res.send({ result: meetingResponse.data, accessToken });
+        //     } catch (error) {
+        //         console.error("Error:", error.response.data);
+        //         res.status(500).send("Error creating meeting");
+        //     }
+        // });
+
+
+
         /*  app.get('/users', async (req, res) => {
              const user = req.body;
              const result = await usersCollection.insertOne(user);
@@ -1436,9 +1848,9 @@ async function run() {
         //organization add
         /*  app.post('/organizations', async (req, res) => {
              let query = {};
- 
+     
              const email = req.query.email;
- 
+     
              const user = req.body;
              let userEmail = await usersCollection.findOne({ email: email });
              if (!userEmail) {
@@ -1462,6 +1874,104 @@ async function run() {
              const result = await orgCollection.insertOne(filter);
              res.send(result)
          }) */
+
+
+        // Replace with your actual credentials
+        // const clientId = 'e_FuOBgNQwC1bQu3AJT5yg';
+        // const clientSecret = 'Wgk4MOvEykfhWjTVYdSOR1Jt3IP3wQ17';
+        // const redirectUri = 'http://localhost:5000'; // This should be a URL registered in your Zoom OAuth app
+
+        // // Step 1: Redirect the user to the Zoom OAuth consent page
+        // app.get('/authorize', (req, res) => {
+        //     const authorizeUrl = `https://zoom.us/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}`;
+        //     res.redirect(authorizeUrl);
+        // });
+
+        // // Step 2: Handle the redirect from Zoom after user consent
+        // app.get('/callback', async (req, res) => {
+        //     const code = req.query.code;
+
+        //     try {
+        //         // Step 3: Exchange the authorization code for an access token
+        //         const tokenResponse = await axios.post('https://zoom.us/oauth/token', null, {
+        //             params: {
+        //                 grant_type: 'authorization_code',
+        //                 code: code,
+        //                 client_id: clientId,
+        //                 client_secret: clientSecret,
+        //                 redirect_uri: redirectUri
+        //             },
+        //         });
+
+        //         const accessToken = tokenResponse.data.access_token;
+
+        //         // Step 4: Create a meeting using the obtained access token
+        //         const meetingResponse = await axios.post('https://api.zoom.us/v2/users/me/meetings', {
+        //             topic: "My Meeting",
+        //             type: 2
+        //         }, {
+        //             headers: {
+        //                 'Content-Type': 'application/json',
+        //                 'Authorization': `Bearer ${accessToken}`
+        //             },
+        //         });
+
+        //         res.send({ result: meetingResponse.data });
+        //     } catch (error) {
+        //         console.error("Error:", error.response.data);
+        //         res.status(500).send("Error creating meeting");
+        //     }
+        // });
+
+
+
+        app.post('/createMeeting', async (req, res) => {
+            try {
+                const clientID = process.env.zoom_clientId;
+                const clientSecret = process.env.zoom_clientSecret;
+                const redirectURI = process.env.zoom_redirectUri; // The same as used in your frontend
+                // Step 1: Exchange authorization code for access token
+                const authCode = req.body.authCode;
+                const manageClass = req.body.manageClass;
+
+                const tokenResponse = await axios.post('https://zoom.us/oauth/token', null, {
+                    params: {
+                        grant_type: 'authorization_code',
+                        code: authCode,
+                        redirect_uri: redirectURI,
+                    },
+                    auth: {
+                        username: clientID,
+                        password: clientSecret,
+                    },
+                });
+
+                const accessToken = tokenResponse.data.access_token;
+
+                // Step 2: Use access token to create a meeting
+                const meetingResponse = await axios.post(
+                    'https://api.zoom.us/v2/users/me/meetings',
+                    manageClass,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                        },
+                    }
+                );
+
+                res.send(
+                    {
+                        tokenResponse: tokenResponse.data,
+                        meeting: meetingResponse.data
+                    }
+                );
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'An error occurred' });
+            }
+        });
+
+
 
 
 
