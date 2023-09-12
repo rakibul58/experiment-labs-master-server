@@ -595,7 +595,7 @@ async function run() {
                     return res.status(400).json({ error: 'Invalid task type' });
             }
 
-            res.status(200).json(result);
+            // res.status(200).json(result);
 
             const filter = { _id: new ObjectId(chapterId) };
             const options = { upsert: true };
@@ -864,7 +864,10 @@ async function run() {
 
 
             res.status(200).json(allData);
-        })
+        });
+
+
+
 
 
         // Add a new question to the questions array in the quiz collection
@@ -1751,6 +1754,49 @@ async function run() {
             }
         });
 
+        // Find assignment submission by taskId and submitter _id
+        app.get('/getSingleSubmitAssignment/:id', async (req, res) => {
+            const id = req.params.id;
+
+            const query = { _id: new ObjectId(id) };
+
+            try {
+                const submissions = await assignmentSubmitCollection.findOne(query);
+
+                if (submissions.length === 0) {
+                    return res.status(404).json({ message: 'No assignment submissions found' });
+                }
+
+                res.status(200).send(submissions);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+        // Find assignment submission by organization
+        app.get('/getSubmitAssignment/:organizationId', async (req, res) => {
+            const organizationId = req.params.organizationId;
+            console.log(organizationId);
+            const query = {
+                'submitter.organizationId': organizationId
+            };
+
+            try {
+                const submissions = await assignmentSubmitCollection.find(query).toArray();
+
+                if (submissions.length === 0) {
+                    return res.status(404).json({ message: 'No assignment submissions found for this organization' });
+                }
+
+                res.status(200).send(submissions);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
 
         // app.post("/create-meeting", async (req, res) => {
         //     const { clientId, clientSecret } = req.body;
@@ -1948,6 +1994,8 @@ async function run() {
 
                 const accessToken = tokenResponse.data.access_token;
 
+
+
                 // Step 2: Use access token to create a meeting
                 const meetingResponse = await axios.post(
                     'https://api.zoom.us/v2/users/me/meetings',
@@ -1970,6 +2018,8 @@ async function run() {
                 res.status(500).json({ message: 'An error occurred' });
             }
         });
+
+
 
 
 
