@@ -69,6 +69,9 @@ async function run() {
         const assignmentSubmitCollection = client.db('experiment-labs').collection('assignments-submit');
 
 
+        const eventCollection = client.db('experiment-labs').collection('events');
+
+
 
 
         app.post('/test', async (req, res) => {
@@ -1795,6 +1798,112 @@ async function run() {
                 console.error(error);
                 res.status(500).json({ message: 'Internal server error' });
             }
+        });
+
+        // Find assignment submission by organization
+        app.get('/getSubmitAssignment/submitter/:submitterId/:taskId', async (req, res) => {
+            const submitterId = req.params.submitterId;
+            const taskId = req.params.taskId;
+            const query = {
+                'taskId': taskId,
+                'submitter._id': submitterId
+            };
+
+            try {
+                const submissions = await assignmentSubmitCollection.findOne(query);
+                res.status(200).send(submissions);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+        app.post('/submitAssignment/:submissionId/addResult', async (req, res) => {
+            const submissionId = req.params.submissionId;
+            const result = req.body;
+            try {
+                // Find the assignment submission by its _id
+                const submission = await assignmentSubmitCollection.findOne({ _id: new ObjectId(submissionId) });
+
+                if (!submission) {
+                    return res.status(404).json({ message: 'Assignment submission not found' });
+                }
+
+                // Add the result object to the submitter object
+                submission.submitter.result = result;
+
+                // Update the document in the collection
+                const updateResult = await assignmentSubmitCollection.updateOne(
+                    { _id: new ObjectId(submissionId) },
+                    { $set: { submitter: submission.submitter } }
+                );
+
+                if (updateResult.modifiedCount > 0) {
+                    res.status(200).json(updateResult);
+                } else {
+                    res.status(500).json({ success: false, message: 'Failed to add result to assignment submission' });
+                }
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+        app.post('/submitAssignment/:submissionId/addReview', async (req, res) => {
+            const submissionId = req.params.submissionId;
+            const review = req.body;
+            try {
+                // Find the assignment submission by its _id
+                const submission = await assignmentSubmitCollection.findOne({ _id: new ObjectId(submissionId) });
+
+                if (!submission) {
+                    return res.status(404).json({ message: 'Assignment submission not found' });
+                }
+
+                // Add the result object to the submitter object
+                submission.submitter.result.review = review;
+
+                // Update the document in the collection
+                const updateResult = await assignmentSubmitCollection.updateOne(
+                    { _id: new ObjectId(submissionId) },
+                    { $set: { 'submitter.result': submission.submitter.result } }
+                );
+
+                if (updateResult.modifiedCount > 0) {
+                    res.status(200).json(updateResult);
+                } else {
+                    res.status(500).json({ success: false, message: 'Failed to add result to assignment submission' });
+                }
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+
+        //events
+
+        app.post('/events', async (req, res) => {
+            const event = req.body;
+            const result = await eventCollection.insertOne(event);
+            res.send(result);
+        });
+
+
+        app.get('/events', async (req, res) => {
+            const filter = {};
+            const result = await eventCollection.find(filter).toArray();
+            res.send(result);
+        });
+
+        app.get('/event/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const result = await eventCollection.findOne(filter);
+            res.send(result);
         });
 
 
