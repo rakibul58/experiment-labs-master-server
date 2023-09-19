@@ -6,7 +6,8 @@ const app = express()
 require('dotenv').config();
 const { query } = require('express');
 
-app.use(express.static('front'))
+app.use(express.static('front'));
+const nodemailer = require('nodemailer');
 
 
 const port = 5000
@@ -70,6 +71,44 @@ async function run() {
 
 
         const eventCollection = client.db('experiment-labs').collection('events');
+
+
+
+
+
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                type: 'OAuth2',
+                user: process.env.MAIL_USERNAME,
+                pass: process.env.MAIL_PASSWORD,
+                clientId: process.env.OAUTH_CLIENTID,
+                clientSecret: process.env.OAUTH_CLIENT_SECRET,
+                refreshToken: process.env.OAUTH_REFRESH_TOKEN
+            }
+        });
+
+
+        app.post('/sendMail', async (req, res) => {
+
+            const data = req.body;
+            console.log(transporter);
+            const mailOptions = {
+                from: data?.from,
+                to: data?.to,
+                subject: data?.subject+ ` sent by ${data?.from}`,
+                text: data?.message
+            };
+
+            transporter.sendMail(mailOptions, function (error, info) {
+                if (error) {
+                    res.send(error);
+                } else {
+                    res.send(info.response);
+                }
+            });
+
+        });
 
 
 
@@ -1876,6 +1915,23 @@ async function run() {
                 } else {
                     res.status(500).json({ success: false, message: 'Failed to add result to assignment submission' });
                 }
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+
+        // Find assignment submission by organization
+        app.get('/getSubmitAssignment/all/:submitterId', async (req, res) => {
+            const submitterId = req.params.submitterId;
+            const query = {
+                'submitter._id': submitterId
+            };
+
+            try {
+                const submissions = await assignmentSubmitCollection.find(query).toArray();
+                res.status(200).send(submissions);
             } catch (error) {
                 console.error(error);
                 res.status(500).json({ message: 'Internal server error' });
