@@ -96,17 +96,19 @@ async function run() {
             const mailOptions = {
                 from: data?.from,
                 to: data?.to,
-                subject: data?.subject+ ` sent by ${data?.from}`,
+                subject: data?.subject + ` sent by ${data?.from}`,
                 text: data?.message
             };
 
             transporter.sendMail(mailOptions, function (error, info) {
                 if (error) {
-                    res.send(error);
+                    res.send({ "Success": false });
                 } else {
-                    res.send(info.response);
+                    res.send({ "Success": true });
                 }
             });
+
+
 
         });
 
@@ -825,6 +827,26 @@ async function run() {
         });
 
 
+        app.get('/chapters/courseId/:courseId', async (req, res) => {
+
+            const courseId = req.params.courseId;
+            const filter = { courseId: courseId };
+            const result = await chapterCollection.find(filter).toArray();
+            res.send(result);
+
+        });
+
+
+        app.get('/assignments/chapterId/:chapterId', async (req, res) => {
+
+            const chapterId = req.params.chapterId;
+            const filter = { chapterId: chapterId };
+            const result = await assignmentCollection.find(filter).toArray();
+            res.send(result);
+
+        });
+
+
         app.get('/allTask/:id', async (req, res) => {
 
             const id = req.query.id;
@@ -909,7 +931,10 @@ async function run() {
         });
 
 
-
+        app.get('/assignments', async (req, res) =>{
+            const result = await assignmentCollection.find({}).toArray();
+            res.send(result);
+        });
 
 
         // Add a new question to the questions array in the quiz collection
@@ -1766,9 +1791,37 @@ async function run() {
 
 
         app.post("/submitAssignment", async (req, res) => {
-            const data = req.body;
-            const result = await assignmentSubmitCollection.insertOne(data);
-            res.send(result);
+            const newSubmission = req.body;
+
+
+            const query = {
+                'taskId': newSubmission.taskId,
+                'submitter._id': newSubmission.submitter._id
+            };
+
+            // Try to find an existing submission with the same taskId and submitter _id
+            const existingSubmission = await assignmentSubmitCollection.findOne(query);
+
+            if (existingSubmission) {
+                // Update the existing submission
+                const updateResult = await assignmentSubmitCollection.updateOne(query, { $set: newSubmission });
+
+                if (updateResult.modifiedCount > 0) {
+                    res.status(200).json(updateResult);
+                } else {
+                    res.status(500).json({ success: false, message: 'Failed to update assignment submission' });
+                }
+            } else {
+                // Insert a new submission
+                const insertResult = await assignmentSubmitCollection.insertOne(newSubmission);
+
+                if (insertResult.insertedCount > 0) {
+                    res.status(200).json(insertResult);
+                } else {
+                    res.status(500).json({ success: false, message: 'Failed to add assignment submission' });
+                }
+            }
+
         });
 
 
@@ -2185,7 +2238,55 @@ async function run() {
         });
 
 
+        app.post('/recordings/:id', async (req, res) => {
+            try {
+                // console.log("api called");
+                const clientID = process.env.zoom_clientId;
+                const clientSecret = process.env.zoom_clientSecret;
+                const redirectURI = process.env.zoom_redirectUri2; // The same as used in your frontend
+                // Step 1: Exchange authorization code for access token
+                const authCode = req.body.authCode;
+                const id = req.params.id;
 
+                // console.log("Meeting Id",typeof +id);
+
+                const tokenResponse = await axios.post('https://zoom.us/oauth/token', null, {
+                    params: {
+                        grant_type: 'authorization_code',
+                        code: authCode,
+                        redirect_uri: redirectURI,
+                    },
+                    auth: {
+                        username: clientID,
+                        password: clientSecret,
+                    },
+                });
+
+                const accessToken = tokenResponse.data.access_token;
+
+                const meetingId = +id;
+
+
+                // Step 2: Use access token to create a meeting
+                const response = await axios.get(
+                    `https://api.zoom.us/v2/meetings/${meetingId}/recordings`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                        },
+                    }
+                );
+
+                res.send(
+                    {
+                        meeting: response.data
+                    }
+                );
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'An error occurred' });
+            }
+        });
 
 
 
