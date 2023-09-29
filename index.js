@@ -931,7 +931,7 @@ async function run() {
         });
 
 
-        app.get('/assignments', async (req, res) =>{
+        app.get('/assignments', async (req, res) => {
             const result = await assignmentCollection.find({}).toArray();
             res.send(result);
         });
@@ -2014,6 +2014,301 @@ async function run() {
             const result = await eventCollection.findOne(filter);
             res.send(result);
         });
+
+
+        // Add attendees to a class
+        app.post('/classes/:classId/add-attendees', async (req, res) => {
+            // console.log("Api called");
+            const classId = req.params.classId;
+            const attendee = req.body.attendee;
+
+            console.log(classId);
+            console.log(attendee);
+
+            // Find the class by its _id
+            const classDocument = await classCollection.findOne({ _id: new ObjectId(classId) });
+
+            if (!classDocument) {
+                return res.status(404).json({ message: 'Class not found' });
+            }
+            // Add attendees to the class
+            if (!classDocument.attendees) {
+                classDocument.attendees = [];
+            }
+
+            // Check if an attendee with the same email already exists in the class
+            const duplicateAttendee = classDocument.attendees.find(newAttendee => attendee.email === newAttendee.email);
+
+            if (duplicateAttendee) {
+                return res.send({ message: 'Attendee with the same email already exists in the class' });
+            }
+
+            classDocument.attendees = [...classDocument.attendees, attendee];
+
+            // Update the document in the collection
+            const updateResult = await classCollection.updateOne(
+                { _id: new ObjectId(classId) },
+                { $set: { attendees: classDocument.attendees } }
+            );
+
+            if (updateResult.modifiedCount > 0) {
+                res.status(200).json(updateResult);
+            } else {
+                res.status(500).json({ success: false, message: 'Failed to add attendees to the class' });
+            }
+        });
+
+
+        ///Shihab's part
+
+        app.post('/chapter/:chapterId/task/:taskId/add-participant/:taskType', async (req, res) => {
+
+            const chapterId = req.params.chapterId;
+            const taskId = req.params.taskId;
+            const participantChapter = req.body.participantChapter; // Participant object for the chapter collection
+            const participantTask = req.body.participantTask; // Participant object for the task collection
+            const taskType = req.params.taskType; // Task type (e.g., "reading", "quiz", etc.)
+
+
+
+            const chapterDocument = await chapterCollection.findOne({ _id: new ObjectId(chapterId) });
+
+
+
+            if (!chapterDocument) {
+                return res.status(404).json({ message: 'Chapter not found' });
+            }
+
+
+
+            // // Find the specific task within the chapter based on task type
+            const task = chapterDocument.tasks.find(task => task.taskId === taskId && task.taskType === taskType);
+
+
+            if (!task) {
+                return res.status(404).json({ message: 'Task not found within the chapter' });
+            }
+
+
+            // // // // Check if the "participants" field exists within the task, and if not, initialize it as an empty array
+            if (!task.participants) {
+                task.participants = [];
+            }
+
+            let existingParticipantChapter = 0;
+
+            // // // // Check if the participant with the same ID already exists in the task
+            if (task.participants.length) {
+                existingParticipantChapter = task.participants.find(existing => existing.email === participantChapter.email);
+            }
+
+
+            if (existingParticipantChapter) {
+                // Participant already exists, update their information if needed
+                res.send({ message: 'Already Exists' });
+            } else {
+                // Participant is new, add them to the task
+                const newParticipants = [...task.participants, participantChapter];
+                task.participants = newParticipants;
+                res.send(task.participants);
+            }
+
+
+            // // Update the document in the chapter collection
+            // const updateResultChapter = await chapterCollection.updateOne(
+            //     { _id: new ObjectId(chapterId) },
+            //     { $set: { tasks: chapterDocument.tasks } }
+            // );
+
+            // if (updateResultChapter.modifiedCount > 0) {
+            //     // Find the task collection (e.g., readingCollection) based on task type
+            //     let taskCollection;
+            //     switch (taskType) {
+            //         case 'Reading':
+            //             taskCollection = readingCollection;
+            //             break;
+            //         case 'Quiz':
+            //             taskCollection = quizCollection;
+            //             break;
+            //         case 'Assignment':
+            //             taskCollection = assignmentCollection;
+            //             break;
+            //         case 'Classes':
+            //             taskCollection = classCollection;
+            //             break;
+            //         case 'LiveTests':
+            //             taskCollection = liveTestCollection;
+            //             break;
+            //         case 'Video':
+            //             taskCollection = videoCollection;
+            //             break;
+            //         case 'Audio':
+            //             taskCollection = audioCollection;
+            //             break;
+            //         case 'Files':
+            //             taskCollection = fileCollection;
+            //             break;
+            //         default:
+            //             return res.status(400).json({ message: 'Invalid task type' });
+            //     }
+
+            //     // Find the specific task within the task collection based on taskId
+            //     const taskDocument = await taskCollection.findOne({ _id: new ObjectId(taskId) });
+
+            //     if (!taskDocument) {
+            //         return res.status(404).json({ message: 'Task not found within the task collection' });
+            //     }
+
+            //     // Check if the "participants" field exists within the task collection, and if not, initialize it as an empty array
+            //     if (!taskDocument.participants) {
+            //         taskDocument.participants = [];
+            //     }
+
+            //     // Check if the participant with the same ID already exists in the task collection
+            //     const existingParticipantTask = taskDocument.participants.find(existing => existing.email === participantTask.email);
+
+            //     if (existingParticipantTask) {
+            //         // Participant already exists, update their information if needed
+            //         Object.assign(existingParticipantTask, participantTask);
+            //     } else {
+            //         // Participant is new, add them to the task collection
+            //         taskDocument.participants.push(participantTask);
+            //     }
+
+            //     // Update the document in the task collection
+            //     const updateResultTask = await taskCollection.updateOne(
+            //         { _id: new ObjectId(taskId) },
+            //         { $set: { participants: taskDocument.participants } }
+            //     );
+
+            //     res.status(200).json({
+            //         "chapter": updateResultChapter,
+            //         "task": updateResultTask // Dynamically include the updated task collection
+            //     });
+            // }
+
+        });
+
+
+
+
+        // app.post('/chapter/:chapterId/task/:taskId/add-participant/:taskType', async (req, res) => {
+        //     const chapterId = req.params.chapterId;
+        //     const taskId = req.params.taskId;
+        //     const participantChapter = req.body.participantChapter; // Participant object for the chapter collection
+        //     const participantTask = req.body.participantTask; // Participant object for the task collection
+        //     const taskType = req.params.taskType; // Task type (e.g., "reading", "quiz", etc.)
+
+        //     try {
+        //         // Find the chapter by its _id
+        //         const chapterDocument = await chapterCollection.findOne({ _id: new ObjectId(chapterId) });
+
+        //         if (!chapterDocument) {
+        //             return res.status(404).json({ message: 'Chapter not found' });
+        //         }
+
+        //         // Find the specific task within the chapter based on task type
+        //         const task = chapterDocument.tasks.find(task => task.taskId === taskId);
+
+        //         if (!task) {
+        //             return res.status(404).json({ message: 'Task not found within the chapter' });
+        //         }
+
+        //         // Check if the "participants" field exists within the task, and if not, initialize it as an empty array
+        //         if (!task.participants) {
+        //             task.participants = [];
+        //         }
+
+        //         // Check if the participant with the same ID already exists in the task
+        //         const existingParticipant = task.participants.find(existing => existing.email === participantChapter.email);
+
+        //         if (existingParticipant) {
+        //             // Participant already exists, update their information if needed
+        //             return res.status(404).json({ message: 'This participant Already exits' });
+        //         } else {
+        //             // Participant is new, add them to the task
+        //             task.participants.push(participantChapter);
+        //         }
+
+        //         // Update the document in the chapter collection
+        //         const updateResultChapter = await chapterCollection.updateOne(
+        //             { _id: new ObjectId(chapterId) },
+        //             { $set: { tasks: chapterDocument.tasks } }
+        //         );
+
+        //         if (updateResultChapter.modifiedCount > 0) {
+        //             // Find the task collection (e.g., readingCollection) based on task type
+        //             let taskCollection;
+        //             switch (taskType) {
+        //                 case 'Reading':
+        //                     taskCollection = readingCollection;
+        //                     break;
+        //                 case 'Quiz':
+        //                     taskCollection = quizCollection;
+        //                     break;
+        //                 case 'Assignment':
+        //                     taskCollection = assignmentCollection;
+        //                     break;
+        //                 case 'Classes':
+        //                     taskCollection = classCollection;
+        //                     break;
+        //                 case 'LiveTests':
+        //                     taskCollection = liveTestCollection;
+        //                     break;
+        //                 case 'Video':
+        //                     taskCollection = videoCollection;
+        //                     break;
+        //                 case 'Audio':
+        //                     taskCollection = audioCollection;
+        //                     break;
+        //                 case 'Files':
+        //                     taskCollection = fileCollection;
+        //                     break;
+        //                 default:
+        //                     return res.status(400).json({ message: 'Invalid task type' });
+        //             }
+
+        //             // Find the specific task within the task collection based on taskId
+        //             const taskDocument = await taskCollection.findOne({ _id: new ObjectId(taskId) });
+
+        //             if (!taskDocument) {
+        //                 return res.status(404).json({ message: 'Task not found within the task collection' });
+        //             }
+
+        //             // Check if the "participants" field exists within the task collection, and if not, initialize it as an empty array
+        //             if (!taskDocument.participants) {
+        //                 taskDocument.participants = [];
+        //             }
+
+        //             // Check if the participant with the same ID already exists in the task collection
+        //             const existingParticipantTask = taskDocument.participants.find(existing => existing.email === participantTask.email);
+
+        //             if (existingParticipantTask) {
+        //                 // Participant already exists, update their information if needed
+        //                 return res.status(404).json({ message: 'This participant Already exits' });
+        //             } else {
+        //                 // Participant is new, add them to the task collection
+        //                 taskDocument.participants.push(participantTask);
+        //             }
+
+        //             // Update the document in the task collection
+        //             const updateResultTask = await taskCollection.updateOne(
+        //                 { _id: new ObjectId(taskId) },
+        //                 { $set: { participants: taskDocument.participants } }
+        //             );
+
+        //             res.status(200).json({
+        //                 "chapter": updateResultChapter,
+        //                 "task": updateResultTask // Dynamically include the updated task collection
+        //             });
+        //         }
+        //     } catch (error) {
+        //         console.error(error);
+        //         res.status(500).json({ message: 'Internal server error' });
+        //     }
+        // });
+
+
 
 
         // app.post("/create-meeting", async (req, res) => {
