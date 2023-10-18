@@ -6,14 +6,16 @@ const app = express()
 require('dotenv').config();
 const { query } = require('express');
 
-app.use(express.static('front'));
 const nodemailer = require('nodemailer');
+const nodeCron = require('node-cron');
 
 
 const port = 5000
 
+app.use(express.static('front'));
 app.use(cors());
 app.use(express.json());
+
 
 
 app.get('/', (req, res) => {
@@ -71,6 +73,14 @@ async function run() {
 
 
         const eventCollection = client.db('experiment-labs').collection('events');
+        const redemptionCategoryCollection = client.db('experiment-labs').collection('redemptionCategories');
+        const redemptionAccessCollection = client.db('experiment-labs').collection('redemptionAccess');
+
+
+
+        const batchCollection = client.db('experiment-labs').collection('batches');
+
+
 
 
 
@@ -429,15 +439,41 @@ async function run() {
             const course = req.body;
             const result = await courseCollection.insertOne(course);
             const courseId = result.insertedId;
+
+            const batch = {
+                batchName: "Batch 1",
+                batchStartDate: "",
+                batchEndDate: "",
+                participants: [],
+                courseId: "" + courseId,
+                creator: course?.creator,
+                organization: course?.organization
+            };
+
+            const batchResult = await batchCollection.insertOne(batch);
+
+            const batchId = batchResult.insertedId;
+
             const week = {
                 courseId: "" + courseId,
                 weekNo: 1,
-                weekName: "Week Name",
+                weekName: "Week 1",
                 organization: course?.organization,
-                creator: course?.creator
+                creator: course?.creator,
+                schedules: [
+                    {
+                        weekStartDate: "",
+                        weekEndDate: "",
+                        batchId: "" + batchId,
+                        batchName: "Batch 1"
+                    }
+                ]
             };
+
             const newResult = await weekCollection.insertOne(week);
+
             const weekId = newResult.insertedId;
+
             const chapter = {
                 courseId: "" + courseId,
                 weekId: "" + weekId,
@@ -450,7 +486,8 @@ async function run() {
             res.send({
                 "week": newResult,
                 "course": result,
-                "chapter": newChapter
+                "chapter": newChapter,
+                "batch": batchResult
             });
         });
 
@@ -462,6 +499,197 @@ async function run() {
             const course = await courseCollection.find(filter).toArray();
             res.send(course);
         });
+
+
+        //batch
+        app.get('/batches/courseId/:courseId', async (req, res) => {
+
+            const courseId = req.params.courseId;
+            const filter = { courseId: courseId };
+            const result = await batchCollection.find(filter).toArray();
+            res.send(result);
+
+        });
+
+
+
+        // {
+        //     "user": {
+        //         "participants": [
+        //             {
+        //                 "email": "user@gmail.com",
+        //                 "name": "User",
+        //                 "phone": "01643433981",
+        //                 "password": "Experiment@123",
+        //                 "organizationId": "64cbbd756f0ef101bc957231",
+        //                 "organizationName": "Shihab International",
+        //             },
+        //             {
+        //                 "email": "admin@gmail.com",
+        //                 "name": "Shajibul Alam Shihab",
+        //                 "phone": "01643433981",
+        //                 "password": "1231231232",
+        //                 "organizationId": "64cbbd756f0ef101bc957231",
+        //                 "organizationName": "Shihab International"
+        //             }
+        //         ]
+        //     },
+        //     "batch": {
+        //         "courseId": "651eae9d89151f9fa5fda8a7",
+        //             "batchName": "Batch 2",
+        //                 "batchStartDate": "2023-10-07",
+        //                     "batchEndDate": "2023-10-22",
+        //                         "creator": {
+        //             "name": "Admin",
+        //                 "email": "admin@gmail.com"
+        //         },
+        //         "organization": {
+        //             "organizationId": "64cbbd756f0ef101bc957231",
+        //                 "organizationName": "Shihab International"
+        //         },
+        //         "participants": [
+        //             {
+        //                 "email": "user@gmail.com",
+        //                 "name": "User"
+        //             },
+        //             {
+        //                 "email": "admin@gmail.com",
+        //                 "name": "Shajibul Alam Shihab"
+        //             }
+        //         ]
+        //     }
+        // }
+
+
+
+
+
+
+
+        app.post('/batches/create', async (req, res) => {
+
+            const data = req.body;
+            const participants = data.user.participants;
+            const batch = data.batch;
+
+            const batchResult = await batchCollection.insertOne(batch);
+            const batchId = "" + batchResult.insertedId;
+            let participantsResult;
+
+            if (participants.length > 0) {
+                const courses = [
+                    {
+                        batchId: batchId,
+                        batchName: batch?.batchName,
+                        courseId: batch?.courseId,
+                        completedTask: 0
+                    }
+                ];
+
+                const participantsWithCourses = participants.map(participant => ({
+                    ...participant,
+                    courses: courses
+                }));
+
+
+                participantsResult = await userCollection.insertMany(participantsWithCourses);
+            }
+            else {
+                participantsResult = { message: "No Participant" }
+            }
+
+            const courseId = batch?.courseId;
+
+            const newSchedule = {
+                batchId,
+                batch: batch?.batchName,
+                weekEndDate: "",
+                weekStartDate: ""
+            }
+
+            const weeksWithCourseId = await weekCollection.find({ courseId: courseId }).toArray();
+
+            // Update each week to push the new schedule into the schedules array
+            const updatePromises = weeksWithCourseId.map(async (week) => {
+                if (!week.schedules) {
+                    week.schedules = [];
+                    week.schedules.push({
+                        batchId,
+                        batch: batch?.batchName,
+                        weekEndDate: week?.weekStartDate ? week?.weekStartDate : "",
+                        weekStartDate: week?.weekEndDate ? week?.weekEndDate : ""
+                    });
+                }
+                else
+                    week.schedules.push(newSchedule);
+
+                // Update the week in the database
+                const updateResult = await weekCollection.updateOne(
+                    { _id: new ObjectId(week._id) },
+                    { $set: { schedules: week.schedules } }
+                );
+
+                return updateResult;
+            });
+
+            // Execute all update operations in parallel
+            const weekResult = await Promise.all(updatePromises);
+
+
+            const chapters = await chapterCollection.find({ courseId: courseId }).toArray();
+
+            // Update each chapter
+            const chapterPromises = chapters.map(async (chapter) => {
+
+                if (!chapter.tasks) {
+                    return;
+                }
+
+                const nonAssignmentOrClassesTasks = chapter.tasks.filter(
+                    (task) => task.taskType !== 'Assignment' && task.taskType !== 'Classes'
+                );
+
+                if (nonAssignmentOrClassesTasks.length > 0) {
+                    // Initialize the "batches" array inside each non-Assignment and non-Classes task
+                    nonAssignmentOrClassesTasks.forEach((task) => {
+                        if (!task.batches) {
+                            task.batches = [];
+                        }
+
+                        // Push a new batch object into the "batches" array
+                        const newBatch = {
+                            batchId: batchId, // Replace with your batchId
+                            batchName: batch?.batchName, // Replace with your batchName
+                        };
+
+                        task.batches.push(newBatch);
+                    });
+                }
+
+                // Update the chapter in the database
+                const updateResult = await chapterCollection.updateOne(
+                    { _id: new ObjectId(chapter._id) },
+                    { $set: { tasks: chapter.tasks } }
+                );
+
+                return updateResult;
+            });
+
+            // Execute all update operations in parallel
+            const chapterResult = await Promise.all(chapterPromises);
+
+            res.send({
+                "participant": participantsResult,
+                "batch": batchResult,
+                "week": weekResult,
+                "chapter": chapterResult
+            })
+
+
+        });
+
+
+
 
 
         //get chapters
@@ -565,20 +793,17 @@ async function run() {
         //Rename weeks
         app.put('/weeks/:id', async (req, res) => {
             const id = req.params.id;
-            const weekName = req.body.weekName;
-            const weekStartDate = req.body.weekStartDate;
-            const weekEndDate = req.body.weekEndDate;
+            const updatedData = req.body;
+            // const weekStartDate = req.body.weekStartDate;
+            // const weekEndDate = req.body.weekEndDate;
 
             const filter = { _id: new ObjectId(id) };
 
             const options = { upsert: true };
             const updatedDoc = {
-                $set: {
-                    weekName: weekName,
-                    weekStartDate: weekStartDate,
-                    weekEndDate: weekEndDate
-                }
+                $set: updatedData
             };
+
             const result = await weekCollection.updateOne(filter, updatedDoc, options);
             res.send(result);
         });
@@ -596,8 +821,10 @@ async function run() {
         //tasks
         app.post('/tasks/:id', async (req, res) => {
             const chapterId = req.body.chapterId;
+            const courseId = req.body.courseId;
             const taskType = req.params.id;
             const task = req.body;
+            const batches = task.batches;
             const taskName = task.taskName;
             let taskTypeInput;
             let result;
@@ -647,7 +874,9 @@ async function run() {
             const newTask = {
                 taskId: "" + result?.insertedId,
                 taskType: taskTypeInput,
-                taskName
+                taskName,
+                batches: batches,
+                contentStage: task?.contentStage
             };
 
             const updatedDoc = {
@@ -658,7 +887,26 @@ async function run() {
 
             const newResult = await chapterCollection.updateOne(filter, updatedDoc, options);
 
-            res.send({ result, newResult });
+            if (newResult.modifiedCount > 0) {
+                const filter = { _id: new ObjectId(courseId) };
+                const options = { upsert: true };
+
+                const updateCourse = {
+                    $inc: { totalTask: 1 } // Increment totalTask by 1
+                };
+
+                const updateResult = await courseCollection.updateOne(filter, updateCourse, options);
+
+                // Check if the update was successful, and if totalTask field didn't exist, it will be created
+                if (updateResult.modifiedCount > 0 || updateResult.upsertedCount > 0) {
+                    res.status(200).json({ result, newResult, updateResult });
+                } else {
+                    res.status(500).json({ message: 'Failed to update course totalTask' });
+                }
+            } else {
+                res.status(500).json({ message: 'Failed to update chapter tasks' });
+            }
+
         });
 
 
@@ -818,7 +1066,10 @@ async function run() {
                 const find = await chapterCollection.findOne(chapterFilter);
                 console.log(find);
                 const chapterUpdate = {
-                    $set: { 'tasks.$.taskName': updatedTask.taskName }
+                    $set: { 
+                        'tasks.$.taskName': updatedTask.taskName, 'tasks.$.batches': updatedTask.batches, 
+                        'tasks.$.contentStage': updatedTask.contentStage 
+                    }
                 };
                 result = await chapterCollection.updateOne(chapterFilter, chapterUpdate);
             }
@@ -1805,21 +2056,12 @@ async function run() {
             if (existingSubmission) {
                 // Update the existing submission
                 const updateResult = await assignmentSubmitCollection.updateOne(query, { $set: newSubmission });
+                res.send(updateResult);
 
-                if (updateResult.modifiedCount > 0) {
-                    res.status(200).json(updateResult);
-                } else {
-                    res.status(500).json({ success: false, message: 'Failed to update assignment submission' });
-                }
             } else {
                 // Insert a new submission
                 const insertResult = await assignmentSubmitCollection.insertOne(newSubmission);
-
-                if (insertResult.insertedCount > 0) {
-                    res.status(200).json(insertResult);
-                } else {
-                    res.status(500).json({ success: false, message: 'Failed to add assignment submission' });
-                }
+                res.status(200).json(insertResult);
             }
 
         });
@@ -2059,288 +2301,599 @@ async function run() {
         });
 
 
-        ///Shihab's part
 
-        app.post('/chapter/:chapterId/task/:taskId/add-participant/:taskType', async (req, res) => {
+        app.post(
+            "/chapter/:chapterId/task/:taskId/add-participant/:taskType",
+            async (req, res) => {
+                const chapterId = req.params.chapterId;
+                const taskId = req.params.taskId;
+                const participantChapter = req.body.participantChapter;
+                const participantTask = req.body.participantTask;
+                const courseId = req.body.courseId;
+                const courseName = req.body.courseName;
+                const taskType = req.params.taskType;
 
-            const chapterId = req.params.chapterId;
-            const taskId = req.params.taskId;
-            const participantChapter = req.body.participantChapter; // Participant object for the chapter collection
-            const participantTask = req.body.participantTask; // Participant object for the task collection
-            const taskType = req.params.taskType; // Task type (e.g., "reading", "quiz", etc.)
+                try {
+                    const chapterDocument = await chapterCollection.findOne({
+                        _id: new ObjectId(chapterId),
+                    });
 
+                    if (!chapterDocument) {
+                        return res.status(404).json({ message: "Chapter not found" });
+                    }
 
+                    const task = chapterDocument.tasks.find(
+                        (task) => task.taskId === taskId && task.taskType === taskType
+                    );
 
-            const chapterDocument = await chapterCollection.findOne({ _id: new ObjectId(chapterId) });
+                    if (!task) {
+                        return res
+                            .status(404)
+                            .json({ message: "Task not found within the chapter" });
+                    }
 
+                    if (!task.participants) {
+                        task.participants = [];
+                    }
 
+                    // Check if the participant with the same ID already exists in the task
+                    const existingParticipantChapterIndex = task.participants.findIndex(
+                        (existing) => existing.email === participantChapter.email
+                    );
 
-            if (!chapterDocument) {
-                return res.status(404).json({ message: 'Chapter not found' });
+                    if (existingParticipantChapterIndex !== -1) {
+                        // Participant already exists, update their information
+                        task.participants[existingParticipantChapterIndex] =
+                            participantChapter;
+                    } else {
+                        // Participant is new, add them to the task
+                        task.participants.push(participantChapter);
+                    }
+
+                    // Update the document in the chapter collection
+                    await chapterCollection.updateOne(
+                        { _id: new ObjectId(chapterId) },
+                        { $set: { tasks: chapterDocument.tasks } }
+                    );
+
+                    // Find the task collection based on task type
+                    let taskCollection;
+                    switch (taskType) {
+                        case "Reading":
+                            taskCollection = readingCollection;
+                            break;
+                        case "Quiz":
+                            taskCollection = quizCollection;
+                            break;
+                        case "Assignment":
+                            taskCollection = assignmentCollection;
+                            break;
+                        case "Classes":
+                            taskCollection = classCollection;
+                            break;
+                        case "LiveTests":
+                            taskCollection = liveTestCollection;
+                            break;
+                        case "Video":
+                            taskCollection = videoCollection;
+                            break;
+                        case "Audio":
+                            taskCollection = audioCollection;
+                            break;
+                        case "Files":
+                            taskCollection = fileCollection;
+                            break;
+                        default:
+                            return res.status(400).json({ message: "Invalid task type" });
+                    }
+
+                    const taskDocument = await taskCollection.findOne({
+                        _id: new ObjectId(taskId),
+                    });
+
+                    if (!taskDocument) {
+                        return res
+                            .status(404)
+                            .json({ message: "Task not found within the task collection" });
+                    }
+
+                    if (!taskDocument.participants) {
+                        taskDocument.participants = [];
+                    }
+
+                    // Check if the participant with the same ID already exists in the task collection
+                    const existingParticipantTaskIndex =
+                        taskDocument.participants.findIndex(
+                            (existing) =>
+                                existing.participant.email === participantTask.participant.email
+                        );
+
+                    if (existingParticipantTaskIndex !== -1) {
+                        // Participant already exists, update their information
+                        taskDocument.participants[existingParticipantTaskIndex] =
+                            participantTask;
+                    } else {
+                        // Participant is new, add them to the task collection
+                        taskDocument.participants.push(participantTask);
+                    }
+
+                    // Update the document in the task collection
+                    const result = await taskCollection.updateOne(
+                        { _id: new ObjectId(taskId) },
+                        { $set: { participants: taskDocument.participants } }
+                    );
+
+                    if (result) {
+                        // Search for the user in userCollection using their email
+                        const user = await userCollection.findOne({ email: participantTask.participant.email });
+
+                        if (user) {
+                            // Check if the user already has a course entry with the same courseId
+                            const existingCourseIndex = user.courses ? user.courses.findIndex(
+                                (course) => course.courseId === courseId
+                            ) : -1;
+
+                            if (existingCourseIndex !== -1) {
+                                // User has an existing course entry, update completedTask count
+                                user.courses[existingCourseIndex].completedTask++;
+                            } else {
+                                // User doesn't have a course entry for this courseId, create a new one
+                                const newCourseEntry = {
+                                    courseId: courseId,
+                                    courseName: courseName,
+                                    completedTask: 1, // Initialize completedTask to 1 for the new course
+                                };
+                                if (!user.courses) {
+                                    user.courses = []; // Initialize the courses array if it doesn't exist
+                                }
+                                user.courses.push(newCourseEntry);
+                            }
+
+                            // Update the user document in userCollection
+                            await userCollection.updateOne(
+                                { email: participantTask.participant.email },
+                                { $set: { courses: user.courses } }
+                            );
+                        }
+
+                        res.status(200).json(result);
+                    }
+                } catch (error) {
+                    console.error(error);
+                    res.status(500).json({ message: "Internal server error" });
+                }
             }
+        );
 
 
 
-            // // Find the specific task within the chapter based on task type
-            const task = chapterDocument.tasks.find(task => task.taskId === taskId && task.taskType === taskType);
 
 
-            if (!task) {
-                return res.status(404).json({ message: 'Task not found within the chapter' });
-            }
 
 
-            // // // // Check if the "participants" field exists within the task, and if not, initialize it as an empty array
-            if (!task.participants) {
-                task.participants = [];
-            }
-
-            let existingParticipantChapter = 0;
-
-            // // // // Check if the participant with the same ID already exists in the task
-            if (task.participants.length) {
-                existingParticipantChapter = task.participants.find(existing => existing.email === participantChapter.email);
-            }
 
 
-            if (existingParticipantChapter) {
-                // Participant already exists, update their information if needed
-                res.send({ message: 'Already Exists' });
+
+
+        /////////   sohan's code ////////////
+
+        /// Create Redemption category
+
+        app.post('/redemption_categories', async (req, res) => {
+            // Check if the organizationId exists in the database
+            const { organizationId, categoryName, courseId } = req.body;
+            const existingData = await redemptionCategoryCollection.findOne({ organizationId });
+
+            if (existingData) {
+                // If the organizationId exists, find the corresponding course
+                const existingCourse = existingData.courses.find(
+                    (course) => course.courseId === courseId
+                );
+
+                if (existingCourse) {
+                    // If the courseId exists, check if the categoryName exists in categories
+                    const existingCategory = existingCourse.categories.find(
+                        (category) => category.categoryName.toLowerCase() === categoryName.toLowerCase()
+                    );
+
+                    if (!existingCategory) {
+                        // If the categoryName doesn't exist, add it to the categories array
+                        const result1 = await redemptionCategoryCollection.updateOne(
+                            {
+                                organizationId,
+                                "courses.courseId": courseId,
+                            },
+                            {
+                                $push: {
+                                    "courses.$.categories": {
+                                        categoryName,
+                                    },
+                                },
+                            }
+                        );
+
+                        res.send(result1);
+                    }
+                }
+                else {
+                    // If the courseId doesn't exist, create a new course object and add it to the courses array
+                    const result2 = await redemptionCategoryCollection.updateOne(
+                        {
+                            organizationId,
+                        },
+                        {
+                            $push: {
+                                courses: {
+                                    courseId,
+                                    categories: [
+                                        {
+                                            categoryName,
+                                        },
+                                    ],
+                                },
+                            },
+                        }
+                    );
+
+                    res.send(result2)
+                }
             } else {
-                // Participant is new, add them to the task
-                const newParticipants = [...task.participants, participantChapter];
-                task.participants = newParticipants;
-                res.send(task.participants);
+                // If the organizationId doesn't exist, create a new document
+                const result3 = await redemptionCategoryCollection.insertOne({
+                    organizationId,
+                    courses: [
+                        {
+                            courseId,
+                            categories: [
+                                {
+                                    categoryName,
+                                },
+                            ],
+                        },
+                    ],
+                });
+
+                res.send(result3)
+            }
+        });
+
+        app.get('/redemption_categories/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { organizationId: id };
+            const result = await redemptionCategoryCollection.findOne(filter);
+            res.send(result);
+        });
+
+
+
+        //update a redemption categoryName
+        app.put("/redemption_categories/categoryName", async (req, res) => {
+            const { organizationId, courseId, oldCategoryName, newCategoryName } = req.body;
+
+            // Find the organization
+            const organization = await redemptionCategoryCollection.findOne({ organizationId });
+            if (!organization) {
+                res.status(404).json({ error: "Organization not found" });
+                return;
+            }
+
+            // Find the course
+            const course = organization.courses.find((c) => c.courseId === courseId);
+            if (!course) {
+                res.status(404).json({ error: "Course not found" });
+                return;
+            }
+
+            const categoryExists = course.categories.some(
+                (cat) => cat.categoryName.toLowerCase() === newCategoryName.toLowerCase()
+            );
+
+            if (categoryExists) {
+                res.status(400).json({ error: "Category already exists. Please choose another name." });
+                return;
+            }
+
+            // Find the category
+            const category = course.categories.find(
+                (cat) => cat.categoryName.toLowerCase() === oldCategoryName.toLowerCase()
+            );
+
+            if (!category) {
+                res.status(404).json({ error: "Category not found" });
+                return;
+            }
+
+            // Update the category name
+            category.categoryName = newCategoryName;
+
+            // Update the organization in the database
+            const result = await redemptionCategoryCollection.updateOne(
+                { organizationId },
+                { $set: { courses: organization.courses } }
+            );
+
+
+
+            res.send(result);
+
+        });
+
+        //Delete a redemption category
+        app.put("/redemption/deleteCategory", async (req, res) => {
+
+            const { organizationId, courseId, categoryName } = req.body;
+
+            const organization = await redemptionCategoryCollection.findOne({ organizationId });
+            if (!organization) {
+                res.status(404).json({ error: "Organization not found" });
+                return;
+            }
+
+            // Find the course
+            const course = organization.courses.find((c) => c.courseId === courseId);
+            if (!course) {
+                res.status(404).json({ error: "Course not found" });
+                return;
+            }
+
+            // Find the category index
+            const categoryIndex = course.categories.findIndex(
+                (cat) => cat.categoryName.toLowerCase() === categoryName.toLowerCase()
+            );
+
+            console.log(categoryIndex);
+
+            if (categoryIndex === -1) {
+                res.status(404).json({ error: "Category not found" });
+                return;
             }
 
 
-            // // Update the document in the chapter collection
-            // const updateResultChapter = await chapterCollection.updateOne(
-            //     { _id: new ObjectId(chapterId) },
-            //     { $set: { tasks: chapterDocument.tasks } }
-            // );
+            // Remove the category
+            course.categories.splice(categoryIndex, 1);
 
-            // if (updateResultChapter.modifiedCount > 0) {
-            //     // Find the task collection (e.g., readingCollection) based on task type
-            //     let taskCollection;
-            //     switch (taskType) {
-            //         case 'Reading':
-            //             taskCollection = readingCollection;
-            //             break;
-            //         case 'Quiz':
-            //             taskCollection = quizCollection;
-            //             break;
-            //         case 'Assignment':
-            //             taskCollection = assignmentCollection;
-            //             break;
-            //         case 'Classes':
-            //             taskCollection = classCollection;
-            //             break;
-            //         case 'LiveTests':
-            //             taskCollection = liveTestCollection;
-            //             break;
-            //         case 'Video':
-            //             taskCollection = videoCollection;
-            //             break;
-            //         case 'Audio':
-            //             taskCollection = audioCollection;
-            //             break;
-            //         case 'Files':
-            //             taskCollection = fileCollection;
-            //             break;
-            //         default:
-            //             return res.status(400).json({ message: 'Invalid task type' });
-            //     }
 
-            //     // Find the specific task within the task collection based on taskId
-            //     const taskDocument = await taskCollection.findOne({ _id: new ObjectId(taskId) });
+            // Update the organization in the database
+            const result = await redemptionCategoryCollection.updateOne(
+                { organizationId },
+                { $set: { courses: organization.courses } }
+            );
 
-            //     if (!taskDocument) {
-            //         return res.status(404).json({ message: 'Task not found within the task collection' });
-            //     }
+            res.send(result);
 
-            //     // Check if the "participants" field exists within the task collection, and if not, initialize it as an empty array
-            //     if (!taskDocument.participants) {
-            //         taskDocument.participants = [];
-            //     }
+        });
 
-            //     // Check if the participant with the same ID already exists in the task collection
-            //     const existingParticipantTask = taskDocument.participants.find(existing => existing.email === participantTask.email);
+        app.post('/redemptionItems', async (req, res) => {
+            const { organizationId, courseId, categoryName, redemptionItem } = req.body;
 
-            //     if (existingParticipantTask) {
-            //         // Participant already exists, update their information if needed
-            //         Object.assign(existingParticipantTask, participantTask);
-            //     } else {
-            //         // Participant is new, add them to the task collection
-            //         taskDocument.participants.push(participantTask);
-            //     }
+            const document = await redemptionCategoryCollection.findOne({
+                organizationId,
+                "courses.courseId": courseId,
+                "courses.categories.categoryName": categoryName,
+            });
 
-            //     // Update the document in the task collection
-            //     const updateResultTask = await taskCollection.updateOne(
-            //         { _id: new ObjectId(taskId) },
-            //         { $set: { participants: taskDocument.participants } }
-            //     );
+            if (!document) {
+                res.status(404).json({ error: "Document not found" });
+                return;
+            }
 
-            //     res.status(200).json({
-            //         "chapter": updateResultChapter,
-            //         "task": updateResultTask // Dynamically include the updated task collection
-            //     });
-            // }
+            console.log(document);
 
+            const matchingCourse = document.courses.find(
+                (course) => course.courseId === courseId
+            );
+
+            // Find the category with matching categoryName
+            const matchingCategory = matchingCourse.categories.find(
+                (category) => category.categoryName === categoryName
+            );
+
+            if (!matchingCategory) {
+                res.status(404).json({ error: "Category not found" });
+                return;
+            }
+
+            // Initialize the redemptionItems array if it doesn't exist
+            if (!matchingCategory.redemptionItems) {
+                matchingCategory.redemptionItems = [];
+            }
+
+            // Check if the redemption item name already exists
+            const existingRedemptionItem = matchingCategory.redemptionItems.find(
+                (item) => item.redemptionItemName === redemptionItem.redemptionItemName
+            );
+
+            if (existingRedemptionItem) {
+                res.status(400).json({ error: "redemption item name already exists. Please provide another name." });
+                return;
+            }
+
+            // Add the new earning item to the array
+            matchingCategory.redemptionItems.push(redemptionItem);
+
+            // Save the updated document back to the collection
+            const result = await redemptionCategoryCollection.replaceOne(
+                { organizationId },
+                document
+            );
+
+            res.send(result);
+
+        });
+
+        app.get('/weeks/:courseId', async (req, res) => {
+            const id = req.params.courseId;
+            const filter = { courseId: id };
+            const result = await redemptionCategoryCollection.findOne(filter);
+            res.send(result);
+        });
+
+        //edit redemption item
+        app.put("/editRedemptionItem", async (req, res) => {
+            const {
+                organizationId,
+                courseId,
+                categoryName,
+                oldItemName,
+                redemptionItem,
+            } = req.body;
+
+            // Find the document to update
+            const document = await redemptionCategoryCollection.findOne({
+                organizationId,
+                "courses.courseId": courseId,
+                "courses.categories.categoryName": categoryName,
+            });
+
+            if (!document) {
+                res.status(404).json({ error: "Document not found" });
+                return;
+            }
+
+            // Update the skill details within the category
+            document.courses.forEach((course) => {
+                course.categories.forEach((category) => {
+                    if (category.categoryName === categoryName) {
+                        category.redemptionItems = category.redemptionItems?.map((existingItem) => {
+                            if (existingItem.redemptionItemName === oldItemName) {
+                                return {
+                                    redemptionItemName: redemptionItem.redemptionItemName,
+                                    redemptionValue: redemptionItem.redemptionValue,
+                                    itemValue: redemptionItem.itemValue,
+                                    minimumValue: redemptionItem.minimumValue,
+                                    redemptionLevel: redemptionItem.redemptionLevel,
+                                    redemptionLink: redemptionItem.redemptionLink,
+                                    selectedIcon: redemptionItem.selectedIcon,
+                                    description: redemptionItem.description,
+                                };
+                            }
+                            return existingItem;
+                        });
+                    }
+                });
+            });
+
+            // Save the updated document back to the collection
+            const result = await redemptionCategoryCollection.replaceOne(
+                { organizationId },
+                document
+            );
+
+            res.send(result)
+        });
+
+        //delete redemption item
+        app.delete("/deleteRedemptionItem", async (req, res) => {
+            const { organizationId, courseId, categoryName, redemptionItemName } = req.body;
+
+
+            // Find the document to update
+            const document = await redemptionCategoryCollection.findOne({
+                organizationId,
+                "courses.courseId": courseId,
+                "courses.categories.categoryName": categoryName,
+            });
+
+            if (!document) {
+                res.status(404).json({ error: "Document not found" });
+                return;
+            }
+
+            // Update the document by removing the skill
+            document.courses.forEach((course) => {
+                course.categories.forEach((category) => {
+                    if (category.categoryName === categoryName) {
+                        category.redemptionItems = category.redemptionItems?.filter(
+                            (skill) => skill.redemptionItemName !== redemptionItemName
+                        );
+                    }
+                });
+            });
+
+            // Save the updated document back to the collection
+            const result = await redemptionCategoryCollection.replaceOne(
+                { organizationId },
+                document
+            );
+
+            res.send(result);
+
+        });
+
+        app.get('/redemptionCollections/:organizationId', async (req, res) => {
+            const id = req.params.organizationId;
+            const filter = { organizationId: id };
+
+            const result = await redemptionCategoryCollection.findOne(filter);
+            res.send(result);
+        });
+
+        app.post('/redemptionAccess', async (req, res) => {
+            const { organizationId, userId, accessItem } = req.body;
+
+            const document = await redemptionAccessCollection.findOne({
+                organizationId,
+                userId,
+            });
+
+            if (!document) {
+                const result = await redemptionAccessCollection.insertOne({
+                    organizationId,
+                    userId,
+                    accessItems: [
+                        {
+                            redemptionItemName: accessItem.redemptionItemName,
+                            itemValue: accessItem.itemValue,
+                            dateAndTime: accessItem.dateAndTime,
+                        },
+                    ],
+                });
+
+                res.send(result);
+            } else {
+
+
+                const updatedDocument = await redemptionAccessCollection.findOneAndUpdate(
+                    { organizationId, userId },
+                    {
+                        $push: {
+                            accessItems: {
+                                redemptionItemName: accessItem.redemptionItemName,
+                                itemValue: accessItem.itemValue,
+                                dateAndTime: accessItem.dateAndTime,
+                            },
+                        },
+                    },
+                    { returnDocument: 'after' } // This option ensures you get the updated document after the update operation
+                );
+
+                res.send(updatedDocument.value);
+                console.log(updatedDocument.value)
+            }
+        });
+
+        // Find assignment submission by organization
+        app.get('/getRedemptionAccess/:organizationId/:userId', async (req, res) => {
+            const organizationId = req.params.organizationId;
+            const userId = req.params.userId;
+            const query = {
+                'organizationId': organizationId,
+                'userId': userId
+            };
+
+            try {
+                const submissions = await redemptionAccessCollection.findOne(query);
+                res.status(200).send(submissions);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
         });
 
 
 
 
-        // app.post('/chapter/:chapterId/task/:taskId/add-participant/:taskType', async (req, res) => {
-        //     const chapterId = req.params.chapterId;
-        //     const taskId = req.params.taskId;
-        //     const participantChapter = req.body.participantChapter; // Participant object for the chapter collection
-        //     const participantTask = req.body.participantTask; // Participant object for the task collection
-        //     const taskType = req.params.taskType; // Task type (e.g., "reading", "quiz", etc.)
-
-        //     try {
-        //         // Find the chapter by its _id
-        //         const chapterDocument = await chapterCollection.findOne({ _id: new ObjectId(chapterId) });
-
-        //         if (!chapterDocument) {
-        //             return res.status(404).json({ message: 'Chapter not found' });
-        //         }
-
-        //         // Find the specific task within the chapter based on task type
-        //         const task = chapterDocument.tasks.find(task => task.taskId === taskId);
-
-        //         if (!task) {
-        //             return res.status(404).json({ message: 'Task not found within the chapter' });
-        //         }
-
-        //         // Check if the "participants" field exists within the task, and if not, initialize it as an empty array
-        //         if (!task.participants) {
-        //             task.participants = [];
-        //         }
-
-        //         // Check if the participant with the same ID already exists in the task
-        //         const existingParticipant = task.participants.find(existing => existing.email === participantChapter.email);
-
-        //         if (existingParticipant) {
-        //             // Participant already exists, update their information if needed
-        //             return res.status(404).json({ message: 'This participant Already exits' });
-        //         } else {
-        //             // Participant is new, add them to the task
-        //             task.participants.push(participantChapter);
-        //         }
-
-        //         // Update the document in the chapter collection
-        //         const updateResultChapter = await chapterCollection.updateOne(
-        //             { _id: new ObjectId(chapterId) },
-        //             { $set: { tasks: chapterDocument.tasks } }
-        //         );
-
-        //         if (updateResultChapter.modifiedCount > 0) {
-        //             // Find the task collection (e.g., readingCollection) based on task type
-        //             let taskCollection;
-        //             switch (taskType) {
-        //                 case 'Reading':
-        //                     taskCollection = readingCollection;
-        //                     break;
-        //                 case 'Quiz':
-        //                     taskCollection = quizCollection;
-        //                     break;
-        //                 case 'Assignment':
-        //                     taskCollection = assignmentCollection;
-        //                     break;
-        //                 case 'Classes':
-        //                     taskCollection = classCollection;
-        //                     break;
-        //                 case 'LiveTests':
-        //                     taskCollection = liveTestCollection;
-        //                     break;
-        //                 case 'Video':
-        //                     taskCollection = videoCollection;
-        //                     break;
-        //                 case 'Audio':
-        //                     taskCollection = audioCollection;
-        //                     break;
-        //                 case 'Files':
-        //                     taskCollection = fileCollection;
-        //                     break;
-        //                 default:
-        //                     return res.status(400).json({ message: 'Invalid task type' });
-        //             }
-
-        //             // Find the specific task within the task collection based on taskId
-        //             const taskDocument = await taskCollection.findOne({ _id: new ObjectId(taskId) });
-
-        //             if (!taskDocument) {
-        //                 return res.status(404).json({ message: 'Task not found within the task collection' });
-        //             }
-
-        //             // Check if the "participants" field exists within the task collection, and if not, initialize it as an empty array
-        //             if (!taskDocument.participants) {
-        //                 taskDocument.participants = [];
-        //             }
-
-        //             // Check if the participant with the same ID already exists in the task collection
-        //             const existingParticipantTask = taskDocument.participants.find(existing => existing.email === participantTask.email);
-
-        //             if (existingParticipantTask) {
-        //                 // Participant already exists, update their information if needed
-        //                 return res.status(404).json({ message: 'This participant Already exits' });
-        //             } else {
-        //                 // Participant is new, add them to the task collection
-        //                 taskDocument.participants.push(participantTask);
-        //             }
-
-        //             // Update the document in the task collection
-        //             const updateResultTask = await taskCollection.updateOne(
-        //                 { _id: new ObjectId(taskId) },
-        //                 { $set: { participants: taskDocument.participants } }
-        //             );
-
-        //             res.status(200).json({
-        //                 "chapter": updateResultChapter,
-        //                 "task": updateResultTask // Dynamically include the updated task collection
-        //             });
-        //         }
-        //     } catch (error) {
-        //         console.error(error);
-        //         res.status(500).json({ message: 'Internal server error' });
-        //     }
-        // });
-
-
-
-
-        // app.post("/create-meeting", async (req, res) => {
-        //     const { clientId, clientSecret } = req.body;
-
-        //     // Call Zoom's token endpoint to generate an access token
-        //     const response = await axios.post('https://zoom.us/oauth/token', null, {
-        //         params: {
-        //             grant_type: 'client_credentials',
-        //             client_id: clientId,
-        //             client_secret: clientSecret,
-        //         },
-        //     });
-
-        //     const accessToken = response.data.access_token;
-
-        //     console.log(accessToken);
-        //     fetch('https://api.zoom.us/v2/users/me/meetings', {
-        //         mode: 'no-cors',
-        //         method: 'POST',
-        //         headers: {
-        //             'Content-Type': 'application/json',
-        //             'Authorization': `Bearer ${accessToken}`
-        //         },
-        //         body: JSON.stringify({
-        //             agenda: "My Meeting 2",
-        //             type: 2
-        //         })
-        //     })
-        //         .then(res => res.json())
-        //         .then(result => res.send({ result, accessToken }));
-        // });
+        ////////// sohan's code ////////////
 
 
 
@@ -2349,51 +2902,6 @@ async function run() {
 
 
 
-
-
-
-        // //get week by courseId
-        // app.get('/assignments/:id', async (req, res) => {
-        //     const courseId = req.params.id;
-        //     const query = { courseId: courseId };
-        //     const courses = await weekskillCategoryCollection.find(query).toArray();
-        //     res.send(courses);
-        // });
-
-
-        //user add
-
-
-        // app.post("/create-meeting", async (req, res) => {
-        //     // const { clientId, clientSecret } = req.body;
-
-        //     try {
-        //         const response = await axios.post('https://zoom.us/oauth/token', null, {
-        //             params: {
-        //                 grant_type: 'client_credentials',
-        //                 client_id: 'e_FuOBgNQwC1bQu3AJT5yg',
-        //                 client_secret: 'Wgk4MOvEykfhWjTVYdSOR1Jt3IP3wQ17',
-        //             },
-        //         });
-
-        //         const accessToken = response.data.access_token;
-
-        //         const meetingResponse = await axios.post('https://api.zoom.us/v2/users/me/meetings', {
-        //             agenda: "My Meeting 2",
-        //             type: 2
-        //         }, {
-        //             headers: {
-        //                 'Content-Type': 'application/json',
-        //                 'Authorization': `Bearer ${accessToken}`
-        //             },
-        //         });
-
-        //         res.send({ result: meetingResponse.data, accessToken });
-        //     } catch (error) {
-        //         console.error("Error:", error.response.data);
-        //         res.status(500).send("Error creating meeting");
-        //     }
-        // });
 
 
 
@@ -2581,6 +3089,96 @@ async function run() {
                 console.error(error);
                 res.status(500).json({ message: 'An error occurred' });
             }
+        });
+
+
+
+        const job = nodeCron.schedule("0 21 * * *", async () => {
+            const currentDate = new Date();
+
+            const formattedCurrentDate = currentDate.toISOString().slice(0, 10);
+
+            const classes = await classCollection.find({
+                courseStartingDateTime: { $regex: `^${formattedCurrentDate}` }, // Use regex to match the formatted date
+                duration: { $gt: 0 }
+            }).toArray();
+
+
+            const filteredClasses = classes.filter(classData => !classData.marked && classData.participants && classData.participants.length > 0);
+
+            for (const classData of filteredClasses) {
+                const courseStartingDateTime = new Date(classData.courseStartingDateTime);
+                const courseEndTime = new Date(courseStartingDateTime.getTime() + classData.duration * 60000); // Convert duration to milliseconds
+
+                // console.log(classData?.agenda,courseEndTime , currentDate);
+
+                if (courseEndTime < currentDate) {
+                    // The class has not ended yet; you can perform your action here
+                    // For example, you can log or execute some code.
+
+                    // console.log("Time passed");
+
+                    for (const participantData of classData.participants) {
+                        const participantEmail = participantData.participant.email;
+
+                        const user = await userCollection.findOne({ "email": participantEmail });
+                        if (!user) {
+                            // Handle the case where the user is not found
+                            continue;
+                        }
+
+                        // console.log(user?.name);
+
+                        // Loop through categories, earning items, and values from the class
+                        classData.earningParameterData.forEach(category => {
+                            const categoryName = category.categoryName;
+                            // console.log(categoryName);
+                            category.earningItems.forEach(item => {
+                                const earningItemName = item.earningItemName;
+                                const itemValue = parseFloat(item.itemValue); // Parse item value as a float
+                                // console.log(earningItemName , itemValue);
+                                // Process the category and earning item data
+                                if (!user.earningData) {
+                                    user.earningData = [];
+                                }
+
+                                let categoryIndex = user.earningData.findIndex(category => category.categoryName === categoryName);
+
+                                if (categoryIndex >= 0) {
+                                    let itemIndex = user.earningData[categoryIndex].earningItems.findIndex(item => item.earningItemName === earningItemName);
+                                    if (itemIndex >= 0) {
+                                        user.earningData[categoryIndex].earningItems[itemIndex].totalItemValue += itemValue;
+                                    } else {
+                                        user.earningData[categoryIndex].earningItems.push({
+                                            "earningItemName": earningItemName,
+                                            "totalItemValue": itemValue
+                                        });
+                                    }
+                                } else {
+                                    user.earningData.push({
+                                        "categoryName": categoryName,
+                                        "earningItems": [
+                                            {
+                                                "earningItemName": earningItemName,
+                                                "totalItemValue": itemValue
+                                            }
+                                        ]
+                                    });
+                                }
+
+                                // console.log(user?.earningData);
+                            });
+                        });
+
+                        await userCollection.updateOne({ "email": participantEmail }, { $set: { "earningData": user.earningData } });
+                    }
+
+                    // Mark the class as done
+                    await classCollection.updateOne({ "_id": classData._id }, { $set: { "marked": true } });
+                    console.log("Marked");
+                }
+            }
+
         });
 
 
